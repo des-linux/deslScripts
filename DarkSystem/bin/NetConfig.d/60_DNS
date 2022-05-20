@@ -1,8 +1,8 @@
 #!INCLUDE_ONLY
 #//////////////////////////////////////////////////
 #//DESLinux NetConfig.d :: Network Configurator
-#//     (C)2014-2022 Dark Embedded Systems.
-#//     http://xprj.net/
+#//	(C)2014-2022 Dark Embedded Systems.
+#//	http://xprj.net/
 #//////////////////////////////////////////////////
 
 dns_main(){

@@ -1,8 +1,8 @@
 #!INCLUDE_ONLY
 #//////////////////////////////////////////////////
 #//DESLinux Builder
-#//     (C)2014-2022 Dark Embedded Systems.
-#//     http://xprj.net/
+#//	(C)2014-2022 Dark Embedded Systems.
+#//	http://xprj.net/
 #//////////////////////////////////////////////////
 
 # ARGS_RAW_STRING	Args string	: "${@}" when called parse_args();
