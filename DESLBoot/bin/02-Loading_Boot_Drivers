@@ -32,6 +32,10 @@ dump_eeprom(){
 	mount -t tmpfs "tmp://DESL0${DIR}" "${DIR}"
 
 	/DRoot/DESLBoot/ath-dump "${DIR}"
+
+	echo "I: Copy 'regulatory.db'"
+	cp /DRoot/DESLBoot/regulatory.db "${DIR}"
+
 }
 
 load_cmdline(){
