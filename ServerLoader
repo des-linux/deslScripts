@@ -1,8 +1,8 @@
 #!/bin/sh
 #//////////////////////////////////////////////////
 #//ServerLoader v1.x compatible DESLDaemon helper
-#//     (C)2014-2022 Dark Embedded Systems.
-#//     http://xprj.net/
+#//	(C)2014-2022 Dark Embedded Systems.
+#//	http://xprj.net/
 #//////////////////////////////////////////////////
 
 DSL_SELF="${0}";

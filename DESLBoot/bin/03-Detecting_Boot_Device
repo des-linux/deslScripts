@@ -1,8 +1,8 @@
 #!/bin/sh
 #//////////////////////////////////////////////////
 #//DESLinux Boot Loader
-#//     (C)2014-2022 Dark Embedded Systems.
-#//     http://xprj.net/
+#//	(C)2014-2022 Dark Embedded Systems.
+#//	http://xprj.net/
 #//////////////////////////////////////////////////
 MARKER_FILE='.deslroot';
 ROOTFS_FILE='DESLinux_rootfs.tar';
