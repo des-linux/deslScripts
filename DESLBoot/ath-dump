@@ -1,0 +1,81 @@
+#!/bin/sh
+
+main(){
+	local SaveDir="${1:-.}";
+
+	[ ! "${2}" = '' ] && {
+		DESL_HWID="${2}";
+	}
+
+	local DumpFunc='Type_NotSupported';
+	case "${DESL_HWID:-Unknown}" in
+		DNWR1:X:A:G) DumpFunc='Type_DNWR1_X_A_G';;
+		DNWR1:X:A:A) DumpFunc='Type_DNWR1_X_A_A';;
+		DNWR1:X:C:G) DumpFunc='Type_DNWR1_X_C_G';;
+	esac
+
+	[ "${SaveDir}" = '/Test' ] && {
+		[ "${DumpFunc}" = 'Type_NotSupported' ] && {
+			return 127;
+		} || {
+			return 0;
+		}
+	}
+
+	mkdir -p "${SaveDir}"
+	${DumpFunc};
+
+	return 0;
+}
+
+Type_NotSupported(){
+	echo "E: DESL_HWID '${DESL_HWID}' is not supported."
+	exit 127;
+}
+
+Type_DNWR1_X_A_G(){ # wzr-hp-g302h-a1a0
+	dump_eeprom 0x1000 0xeb8 "${SaveDir}/ath9k-eeprom-pci-0000:00:00.0.bin" 'art'
+}
+
+Type_DNWR1_X_A_A(){ # wzr-600dhp, wzr-hp-ag300h
+	dump_eeprom 0x1000 0xeb8 "${SaveDir}/ath9k-eeprom-pci-0000:00:11.0.bin" 'art'
+	dump_eeprom 0x5000 0xeb8 "${SaveDir}/ath9k-eeprom-pci-0000:00:12.0.bin" 'art'
+}
+
+Type_DNWR1_X_C_G(){ # wzr-hp-g450h
+	dump_eeprom 0x1000 0x440 "${SaveDir}/ath9k-eeprom-pci-0000:00:00.0.bin" 'art'
+}
+
+dump_eeprom(){
+	local Offset=$(($1));
+	local Size=$(($2));
+	local File="${3}";
+	local MARKER="${4:-art}";
+
+	# Detect 'ART' partition
+	echo "I:  Detecting 'ART'..."
+	local MTDn=-1;
+
+	local IFS=$'\n\r';
+	for x in `cat /proc/mtd`; do
+		IFS=$' :\t\"';
+		set -- ${x}
+
+		[ "${4}" = "${MARKER}" ] && {
+			MTDn=${1:3};
+			break
+		}
+	done
+
+	[ "${MTDn}" = '-1' ] && {
+		echo "E: No MTD partition '${MARKER}' found."
+		return 1;
+	}
+
+	echo "I: Save EEPROM (${Offset}, ${Size}) to '${File}'"
+	dd if=/dev/mtd${MTDn} of="${File}" iflag=skip_bytes,fullblock bs=${Size} skip=${Offset} count=1 || return 1;
+	return 0;
+}
+
+main "${@}"
+

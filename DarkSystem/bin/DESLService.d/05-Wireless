@@ -1,11 +1,13 @@
 #!/bin/sh
 #//////////////////////////////////////////////////
 #//DESLinux DESLService.d :: System Initializer
-#//     (C)2014-2022 Dark Embedded Systems.
-#//     http://xprj.net/
+#//	(C)2014-2022 Dark Embedded Systems.
+#//	http://xprj.net/
 #//////////////////////////////////////////////////
 
 main(){
+	${BIN_FOLDER}/ShowState 4
+
 	[ ! -e "${CONF_FOLDER:-/DRoot/DarkSystem/conf}/WiFi" ] && exit 250;
 	${BIN_FOLDER:-/DRoot/DarkSystem/bin}/WiFiConfig
 

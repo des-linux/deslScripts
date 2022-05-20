@@ -1,12 +1,11 @@
 #!/bin/sh
 #//////////////////////////////////////////////////
 #//DESLinux DSLoader.d :: System Loader
-#//     (C)2014-2022 Dark Embedded Systems.
-#//     http://xprj.net/
+#//	(C)2014-2022 Dark Embedded Systems.
+#//	http://xprj.net/
 #//////////////////////////////////////////////////
-
 main(){
-	install_coretools;
+#	install_coretools;
 	mount_specialfs;
 	patch_rootfs;
 
@@ -44,51 +43,9 @@ install_coretools(){
 }
 
 patch_rootfs(){
-	local P_BIN_TOOLS=0;
-	local P_MODPROBE=0;
-	local P_VAR_IS_LINKED=0;
-	local P_RESOLV_CONF_IS_LINKED=0;
-	local P_DEPMOD=0;
-
 	set -- `cat /proc/version`
 	local KVER="${3}";
-
-	[ ! -e '/bin/mkdir' ] && P_BIN_TOOLS=1;
-	[ ! -e '/sbin/modprobe' ] && P_MODPROBE=1;
-	[ ! -L '/var' ] && P_VAR_IS_LINKED=1;
-	[ ! -L '/etc/resolv.conf' ] && P_RESOLV_CONF_IS_LINKED=1;
-	[ ! -e '/lib/modules/${KVER}/modules.dep' ] && P_DEPMOD=1;
-
-	[ "${P_BIN_TOOLS}${P_MODPROBE}${P_VAR_IS_LINKED}${P_RESOLV_CONF_IS_LINKED}${P_DEPMOD}" = '00000' ] && return 0;
-
-	mount -o remount,rw /
-
-	[ "${P_BIN_TOOLS}" = '1' ] && {
-		/bin/busybox --install -s
-	}
-
-	[ "${P_MODPROBE}" = '1' ] && {
-		ln -s /bin/busybox /sbin/modprobe
-	}
-
-	[ "${P_VAR_IS_LINKED}" = '1' ] && {
-		rm -rf /var
-		ln -s tmp /var
-	}
-
-	[ "${P_RESOLV_CONF_IS_LINKED}" = '1' ] && {
-		rm -f /etc/resolv.conf
-		ln -s /tmp/resolv.conf /etc/resolv.conf
-	}
-
-	[ "${P_DEPMOD}" = '1' ] && {
-		echo 'I: Generating kmodules database...'
-		depmod -a;
-	}
-
-	mount -o remount,ro /
-
-	return 0;
+	[ ! -e "/lib/modules/${KVER}/modules.dep" ] && depmod -a
 }
 
 check_mounted(){
@@ -156,4 +113,5 @@ mount_specialfs(){
 main "${@}";
 
 exit 0;
+
 

@@ -1,63 +1,27 @@
 #!/bin/sh
 #//////////////////////////////////////////////////
-#//DESLinux Boot Loader
+#//DESLinux DSLoader.d :: System Loader
 #//	(C)2014-2022 Dark Embedded Systems.
 #//	http://xprj.net/
 #//////////////////////////////////////////////////
-PREVCNT=65536;
+PREVCNT=65535;
 
 main(){
-	# load_cmdline;
-
-	dump_eeprom;
 	load_boot_drivers_lite;
-
-	echo 'I: Waiting boot device to initialize...'
-	sleep 1
-
-	echo "I: Mapping devices to '/dev'..."
 	register_dev scan
-
-	return 0;
-}
-
-dump_eeprom(){
-	# Dump EEPROM for ath9k driver
-	/DRoot/DESLBoot/ath-dump /Test || return 0;
-
-	# Register /dev/mtd*
-	register_dev scan
-
-	local DIR='/lib/firmware';
-	mount -t tmpfs "tmp://DESL0${DIR}" "${DIR}"
-
-	/DRoot/DESLBoot/ath-dump "${DIR}"
-}
-
-load_cmdline(){
-	local IFS=$' ';
-	for kv in desl `cat /proc/cmdline` ; do
-		IFS=$'=';
-		set -- ${kv}
-		local K="${1}";
-		shift
-		local V="${*:--}";
-		eval CMD_${K//-/_}=\"${V}\";
-	done
-	return 0;
 }
 
 check_exec(){
 	"${1}" --help
 	[ "${?}" = '127' ] && {
 		echo "${1} is not found." >&3
-		exit 21;
+		exit 20;
 	}
 	return 0;
 }
 
 check_dependencies(){
-#	check_exec 'devmm2name'
+	check_exec 'devmm2name'
 	return 0;
 }
 
@@ -67,7 +31,7 @@ register_dev(){
 	[ -e '/dev/zero' ] && return 0;
 
 	# 'devManager' method (ROM after 2020/05/01)
-	/DRoot/DESLBoot/devManager ${1} && return 0;
+	/DRoot/DarkSystem/bin/devManager ${1} && return 0;
 	devManager ${1} && return 0;
 
 	# 'devmm2name' method (ROM after 2019/05/01)
@@ -76,7 +40,7 @@ register_dev(){
 	# Simple method (for MTD devices only)
 	register_dev_mtd && return 0;
 
-	return 1;
+	return 127;
 }
 
 register_dev_mtd(){
@@ -116,8 +80,26 @@ check_redetect_required(){
 	return 1;
 }
 
+detect_and_load_devices(){
+	for m in /sys/bus/*/devices/*/modalias; do
+		modprobe `cat ${m}`
+	done
+}
+
+load_drivers(){
+	echo 'I: Loading drivers...'
+	depmod -a
+
+	while ! check_redetect_required; do
+		detect_and_load_devices 
+	done
+}
+
+
+
 detect_and_load_devices_lite(){
 	/sbin/kmodloader
+
 	for l in /lib/modules/*/*.ko; do
 		l=${l##*/};
 		modprobe "${l%%.*}"
@@ -127,7 +109,7 @@ detect_and_load_devices_lite(){
 }
 
 load_boot_drivers_lite(){
-	echo 'I: Loading drivers...'
+	echo "I: Loading drivers..."
 	while ! check_redetect_required; do
 		detect_and_load_devices_lite;
 	done

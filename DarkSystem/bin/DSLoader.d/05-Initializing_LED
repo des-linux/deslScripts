@@ -1,16 +1,13 @@
 #!/bin/sh
 #//////////////////////////////////////////////////
-#//DESLinux DESLService.d :: System Initializer
+#//DESLinux DSLoader.d :: System Loader
 #//	(C)2014-2022 Dark Embedded Systems.
 #//	http://xprj.net/
 #//////////////////////////////////////////////////
 
 main(){
-	${BIN_FOLDER}/ShowState 3
-
-	${DROOT:-/DRoot}/ServerLoader auto
-	[ "${?}" = '127' ] && exit 250;
-
+	/DRoot/DarkSystem/bin/LEDLoader /Initialize
+	/DRoot/DarkSystem/bin/ShowState 1
 	return 0;
 }
 

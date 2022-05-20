@@ -1,47 +1,32 @@
 #!/bin/sh
 #//////////////////////////////////////////////////
 #//DESLinux Boot Loader
-#//     (C)2014-2022 Dark Embedded Systems.
-#//     http://xprj.net/
+#//	(C)2014-2022 Dark Embedded Systems.
+#//	http://xprj.net/
 #//////////////////////////////////////////////////
-MARKER_FILE='.deslroot';
-ROOTFS_FILE='DESLinux_rootfs.tar';
 ROOT_MOUNT_DIR='/mnt/root';			# In all patterns, location treated as root will mount here.
-ROOT_DIR_MOUNT_DIR='/mnt/rootdir';		# If 'rootdir=' option, real root device will mount here. bind 'rootdir=' to 'ROOT_MOUNT_DIR'
+DSYSTEM='/DRoot/DarkSystem/DarkSystem';
+LED_BASE='/sys/class/leds/';
 
-# Supported kernel cmdlines:
-#	root=/path/...		Path to root block device. This will mount to "/mnt/root"
-#	rootdir=/path/...	Path to chroot (Add prefix: "/mnt/root" automatically. MUST BEGIN WITH '/')
+FIRST=0;
 
 main(){
-	load_cmdline;
-	MARKER_FILE="${CMD_rootmarker:-.deslroot}"
-	ROOTFS_FILE="${CMD_rootfiles:-DESLinux_rootfs.tar}"
+	led_all_on;
+	sleep 1
 
-	mount_fs;
-	return 0;
-}
+	prepare_ds;
 
-error_root(){
-	echo "Failed to detect root device." >&3
-	echo "No '${MARKER_FILE}' file found in any block devices." >&4
+	[ ! -f "${ROOT_MOUNT_DIR}/${DSYSTEM}" ] && {
+		echo 'E: Not found DarkSystem'
+		led_all_blink 500
 
-	echo "Or set the 'root' or 'rootmarker' command line" >&6
-	echo "to configure manually." >&7
-	exit 31;
-}
+		echo 'I: Recheck after 10 seconds...'
+		sleep 10
+		exec "${0}" ${*}
+	}
 
-# If error: return 1
-load_cmdline(){
-	local IFS=$' ';
-	for kv in `cat /proc/cmdline`; do
-		IFS=$'=';
-		set -- ${kv}
-		local K="${1}";
-		shift
-		local V="${*:--}";
-		eval CMD_${K//-/_}=\"${V}\";
-	done
+	led_all_off
+	led_all_blink 100 900
 	return 0;
 }
 
@@ -52,95 +37,200 @@ mountex(){ # dev, dir, rw
 
 	ntfs-3g -o ${MOUNT_RW},acl "${MOUNT_DEV}" "${MOUNT_DIR}" && return 0;
 
+	ntfs-3g -o ${MOUNT_RW} "${MOUNT_DEV}" "${MOUNT_DIR}" && return 0;
+
 	mount -o "${MOUNT_RW}" "${MOUNT_DEV}" "${MOUNT_DIR}" && return 0;
 
 	return 1;
 }
 
-get_devname(){
-	for ue in `cat "${1}/uevent"`; do
-		case ${ue} in
-			DEVNAME=*)
-				echo "${ue#*=}"
-				return 0;
-			;;
-		esac
-	done
-	echo ''
-	return 1;
-}
-
-detect_root(){ # MountDir
-	local MOUNT_DIR=${1};
-	local MOUNT_RW=${2:-rw};
-
-	mkdir -p "${MOUNT_DIR}"
-
-	local DEV;
-	for mm in /sys/dev/block/*; do
-		DEV=`get_devname "${mm}" || devmm2name block "${mm}"`;
-
-		echo " Checking '${DEV}'..."
-		[ "${DEV}" == '' ] && continue
-
-		mountex "/dev/${DEV}" "${MOUNT_DIR}" ${MOUNT_RW} 2>/dev/null
-
-		[ -e "${MOUNT_DIR}/${MARKER_FILE}" ] && return 0;
-		[ -e "${MOUNT_DIR}/${ROOTFS_FILE}" ] && return 0;
-
-		umount "${MOUNT_DIR}" 2>/dev/null
-	done
-	return 1;
-}
-
-bind_rootdir(){
-	local MOUNT_DIR=${1};
-	[ "${CMD_rootdir:--}" = '-' ] && return 0;
-
-	mkdir -p "${MOUNT_DIR}"
-	mount -o bind "${ROOT_DIR_MOUNT_DIR}/${CMD_rootdir}" "${MOUNT_DIR}" || return 1;
-
-	return 0;
-}
-
-mount_rootfs(){ # MountDir
-	local MOUNT_DIR=${1};
-	umount "${ROOT_DIR_MOUNT_DIR}" 2>/dev/null
-	umount "${ROOT_MOUNT_DIR}" 2>/dev/null
-
-	# 'rootdir=' option: mount to ROOT_DIR_MOUNT_DIR, bind to MOUNT_DIR
-	[ "${CMD_rootdir:--}" != '-' ] && MOUNT_DIR=${ROOT_DIR_MOUNT_DIR};
-
-	mkdir -p "${MOUNT_DIR}"
-
-	# Pattern root/1: 'root=' specified. no detect
-	# 	1) mount 'root='
-	[ "${CMD_root:--}" != '-' ] && {
-		mountex "${CMD_root}" "${MOUNT_DIR}" || return 1;
-		bind_rootdir "${1}" || return 1;
-		return 0;
+prepare_ds(){
+	# Make writable /mnt temporally
+	[ ! -e '/mnt/.deslboot_rw' ] && {
+		echo 'I: Preparing /mnt directory...'
+		mount -t tmpfs tmp://DESL0/mnt /mnt
+		touch '/mnt/.deslboot_rw'
 	}
 
-	# Pattern root/2: 'rootmarker=', 'root' without options or not specified any root selector.
-	#	1) detect devices have 'rootmarker'
-	#	2) mount detected to MOUNT_DIR
-	detect_root "${MOUNT_DIR}" || return 1;
-	bind_rootdir "${1}" || return 1;
+	# Try to use USB in all device
+	prepare_ds_from_usb && return 0;
+
+	[ "${FIRST}" != '1' ] && {
+		FIRST=1;
+		echo 'I: Retrying USB...'
+		sleep 3;
+		prepare_ds_from_usb && return 0;
+	}
+
+	# If no USB found and NAND DS enabled.
+	# Always retrun 0 if DarkSystem is installed in NAND.
+	prepare_ds_from_nand && return 0;
+
+	# So reach here only 'NoUSB && NoNAND'
+	[ "${?}" != '0' ] && {
+		echo 'E: Not found valid USB key!'
+		led_all_blink 100
+
+		echo 'I: Recheck after 10 seconds...'
+		sleep 10
+		exec ${0} ${*}
+	}
+	return 1;
+}
+
+prepare_ds_from_nand(){
+	[ -f "${DSYSTEM}" ] && {
+		detect_mtd ${ROOT_MOUNT_DIR} 'rootfs_data' || return 1;
+		return 0;
+	} || {
+		echo 'W: No DarkSystem found in NAND.'
+	}
+	return 1;
+}
+
+prepare_ds_from_usb(){
+	initialize_usb
+	detect_usb ${ROOT_MOUNT_DIR} '.deslroot' || return 1;
+	[ ! -f "${ROOT_MOUNT_DIR}/${DSYSTEM}" ] && return 1;
 
 	return 0;
 }
 
-mount_fs(){
+detect_mtd(){ # MountDir, Marker
+	local MOUNT_DIR=${1};
+	local MARKER=${2};
 
-	# Detect 10 times in 30 secs (no `seq` or another external programs)
-	for i in 0 1 1 1 2 2 3 5 5 10; do
-		echo 'Detecting root device...'
-		sleep ${i}
-		mount_rootfs ${ROOT_MOUNT_DIR} && return ${?};
+	# Detect overlay storage
+	echo 'I:  Detecting MTD...'
+	sleep 1
+	local MTDn=0;
+
+	local IFS=$'\n\r';
+	for x in `cat /proc/mtd`; do
+		IFS=$' :\t\"';
+		set -- ${x}
+		[ "${4}" = "${MARKER}" ] && {
+			MTDn=${1:3};
+			break
+		}
 	done
 
-	error_root;
-	return 1; # Never reach here
+	# MTD Readonly flag
+	[ -e '/DRoot/.nand.ro' ] && MTDn=0;
+
+	# Cleanup
+	umount "${MOUNT_DIR}"
+	umount '/mnt/overlay'
+
+	# Make writable /mnt temporally
+	mkdir -p "${MOUNT_DIR}"
+	mkdir -p '/mnt/overlay'
+
+	[ "${MTDn}" = '0' ] && {
+		echo 'W:   Overlay storage not found in MTD.'
+
+		# mount temp overlay storage
+		mount -t tmpfs tmp://DESL0/nomtd /mnt/overlay
+		sleep 1
+	} || {
+		echo "I:   Overlay storage: ${MTDn}"
+		sleep 1
+
+		echo 'I:  Loading...'
+
+		# mount mtd overlay storage
+		led_all_blink 900 100 # If 1st boot, some devices take long long time for initializing nand.
+		mount -t jffs2 /dev/mtdblock${MTDn} /mnt/overlay
+		led_all_on
+		sleep 1
+	}
+
+	# mount overlay fs
+	mkdir -p /mnt/overlay/upper /mnt/overlay/work
+	mount -t overlay Overlay://DESL0/dev/mtdblock${MTDn} "${MOUNT_DIR}" -o ro,lowerdir=/,upperdir=/mnt/overlay/upper,workdir=/mnt/overlay/work
+
+	return 0;
+}
+
+detect_usb(){ # MountDir, Marker
+	local MOUNT_DIR=${1};
+	local MARKER=${2};
+	local TEST_DIR='/mnt/usbkey_test';
+	local TEST_FILE='.test'
+	local SDX;
+
+	umount "${TEST_DIR}"
+	umount "${MOUNT_DIR}"
+	rmdir "${TEST_DIR}"
+	mkdir -p "${TEST_DIR}"
+	mkdir -p "${MOUNT_DIR}"
+
+	ls -l /sys/block/sd* >/dev/null 2>&1 || return 1; # No USB detected
+
+	for SDX in `ls /dev/sd??*`; do
+		echo I: Checking ${SDX}...
+		mountex "${SDX}" "${TEST_DIR}" rw 2>/dev/null
+		[ -f "${TEST_DIR}/${MARKER}" ] && {
+			umount "${TEST_DIR}"
+			mountex "${SDX}" "${MOUNT_DIR}" rw 2>/dev/null
+			return 0;
+		}
+		umount "${TEST_DIR}"
+	done
+	return 1;
+}
+
+initialize_usb(){
+	echo 'I: Initializing USB key...'
+	sleep 1
+	local DEV;
+
+	for d in /dev/sd?*; do
+		rm -f ${d}
+	done
+
+	ls -l /sys/block/sd* >/dev/null 2>&1 || return 1; # No USB detected
+
+	for d in /sys/block/sd*; do
+		DEV=`cat ${d}/dev`;
+		eval mknod /dev/${d##/*/} b ${DEV//:/ } 2>/dev/null
+
+		for p in ${d}/sd*; do
+			DEV=`cat ${p}/dev`;
+			eval mknod /dev/${p##/*/} b ${DEV//:/ } 2>/dev/null
+		done
+	done
+	return 0;
+}
+
+led_all(){
+	local IFS=$'\n\r';
+	for l in `ls ${LED_BASE}`; do
+		echo ${1} > ${LED_BASE}/${l}/trigger
+	done
+}
+
+led_all_blink(){
+	local IFS=$'\n\r';
+	local on=${1:-1000};
+	local off=${2:-${on}};
+	for l in `ls ${LED_BASE}`; do
+		echo timer > ${LED_BASE}/${l}/trigger
+		echo ${on} > ${LED_BASE}/${l}/delay_on
+		echo ${off} > ${LED_BASE}/${l}/delay_off
+	done
+}
+
+led_reset(){
+	led_all none
+}
+
+led_all_on(){
+	led_all default-on
+}
+
+led_all_off(){
+	led_all none
 }
 
 main "${@}";
