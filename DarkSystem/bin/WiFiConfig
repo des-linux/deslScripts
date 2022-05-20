@@ -1,0 +1,675 @@
+#!/bin/sh
+#//////////////////////////////////////////////////
+#//DESLinux WiFi Configurator
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+
+SELF=`readlink -f ${0}`
+sRoot=${SELF%/*};
+
+. ${sRoot}/../DarkSystem /GetEnv
+. ${BIN_FOLDER}/ConfigManager.sh
+
+main(){
+	local WIFI_FOLDER=${CONF_FOLDER}/WiFi;
+	local TMP_FOLDER=/tmp/DWFConfig;
+	local CTRL_FOLDER=${TMP_FOLDER}/ctrl;
+
+	local DROOT=${DROOT:-/DRoot};
+	local ServerLoader=${ServerLoader:-${DROOT}/ServerLoader};
+	local NUL=/dev/null;
+	local OFS=${IFS};
+
+	local MAC4;
+	config_load "${CONF_FOLDER}/System.conf"
+	config_get MAC4 System:BaseMAC 02:00:00:00
+
+	[ "${TMP_FOLDER}" = '' ] && return 1;
+
+	rm -rf "${TMP_FOLDER}"
+	mkdir -p "${TMP_FOLDER}"
+	mkdir -p "${CTRL_FOLDER}"
+
+	initialize_dev
+
+	local EXECAP EXECSTA NOSTART;
+	local IFS=$' \n\r';
+	for a in ${*}; do
+		case ${a} in
+			/Config:*)
+				WIFI_FOLDER=${a#*:};
+				echo "I: Using configuration folder \"${1}\""
+				;;
+			/MAC4:*)	MAC4=${a#*:};;
+			/AP)		EXECAP=1;;
+			/STA)		EXECSTA=1;;
+			/Stop)		NOSTART=1;;
+		esac
+	done
+
+	[ "${EXECAP}${EXECSTA}" = '' ] && {
+		EXECAP=1;
+		EXECSTA=1;
+	}
+
+	[ "${EXECAP}" = '1' ] && exec_ap
+	[ "${EXECSTA}" = '1' ] && exec_sta
+
+}
+
+error(){
+	echo "${*}" 1>&2;
+}
+
+initialize_dev(){
+	local PHY PHYn PHYnH AP STA;
+
+	echo 'I: Initializing device...'
+
+	local MAC;
+	local IFS=$'\n\r';
+	for d in `iw phy`; do
+		IFS=$' \t';
+		set -- ${d}
+		[ "${1}" = 'Wiphy' ] && {
+			PHY=${2};
+			PHYn=${PHY##*[A-z]};
+			PHYnH=${PHYn};
+			PHYnH=`${BIN_FOLDER}/dec2hex ${PHYnH}`
+
+			echo "I:  ${PHY} ..."
+
+			${ServerLoader} stop "AP" >${NUL} 2>&1
+			${ServerLoader} stop "STA_${PHYn}" >${NUL} 2>&1
+
+			AP=w${PHYn}_AP;
+			STA=w${PHYn}_Sta;
+
+			ifconfig ${AP} down
+			iw dev ${AP} del
+
+			ifconfig ${STA} down
+			iw dev ${STA} del
+
+			MAC="${MAC4:-02:00:00:00}:A${PHYn}:00";
+			echo "I:   ${AP}   -> ${MAC}"
+			iw phy ${PHY} interface add ${AP} type __ap
+			ifconfig ${AP} hw ether "${MAC}"
+
+			MAC="${MAC4:-02:00:00:00}:C${PHYn}:00";
+			echo "I:   ${STA}  -> ${MAC}"
+			iw phy ${PHY} interface add ${STA} type managed
+			ifconfig ${STA} hw ether "${MAC}"
+		}
+	done
+	return 0;
+}
+
+get_ipaddr(){ # if
+	local IFS=$' \t';
+	for a in `ifconfig ${1}`; do
+		[ "${a:0:5}" = 'addr:' ] && echo "${a:5}" && return
+	done;
+	return 0;
+}
+
+leave_bridge(){ # if
+	local DEV=${1}
+	local IFS=$'\n\r';
+	for a in `brctl show`; do
+		IFS=$' \t';
+		set -- ${a}
+		[ "${2}" != '' ] && brctl delif ${1} ${DEV} 2>${NUL}
+
+	done
+	return 0;
+}
+
+##########
+
+generalize_type(){
+	local GRP=${1};
+	local MODEx=${2};
+	local Ta Tb Tg Tn Tac Tad Tax Tay MODE FREQ ALLOW_B;
+	local V HWM G N AC AX; 
+
+# Generalize
+	local IFS=$' \t/';
+	for t in ${MODEx}; do
+		case ${t} in
+			a)	Ta=a/;;
+			b)	Tb=b/;;
+			g)	Tg=g/;;
+			n)	Tn=n/;;
+			n24)	Tn=n/; FREQ=24;;
+			n5)	Tb=n/; FREQ=5;;
+			ac)	Tac=ac/;;
+			ad)	Tad=ad/;;
+			ax)	Tax=ax/;;
+			ax24)	Tax=ax/; FREQ=24;;
+			ax5)	Tax=ax/; FREQ=5;;
+			ay)	TAy=ay/;;
+		esac
+	done
+	IFS=$'\n\r';
+
+# Read
+	# ax separetely
+	MODE="${Ta}${Tb}${Tg}${Tn}${Tac}${Tad}${Tay}"; # ${Tax}
+	MODE=${MODE%/*};
+	case ${MODE} in
+
+# 2.4GHz
+		b		)	HWM=b; ALLOW_B=1;;
+		b/g		)	HWM=g; ALLOW_B=1;;
+		b/g/n		)	HWM=g; ALLOW_B=1; N=1;;
+#		b/n		)	(Invalid);;
+
+		g		)	HWM=g; G=2;;
+		g/n		)	HWM=g; G=2; N=1;;
+
+		n		)	N=2
+					config_get V ${NS}::Global:Channel 0
+					V=$((V-20));
+					[ "${V:0:1}" = '-' ] && { HWM=g; } || { HWM=a; }
+					;;
+
+# 5GHz
+		a		)	HWM=a;;
+		a/n		)	HWM=a; N=1;;
+		a/n/ac		)	HWM=a; N=1; AC=1;;
+		a/ac		)	HWM=a; AC=1;;
+
+#		n		)	(Already);;
+		n/ac		)	HWM=a; N=2; AC=1;;
+
+		ac		)	HWM=a; AC=2;;
+
+# 60GHz
+		ad		)	HWM=ad;;
+		ad/ay		)	HWM=ad;;
+
+		ay		)	HWM=ad;;
+
+# Others
+		n24		)	HMW=h; N=2;;
+		n50		)	HMW=a; N=2;;
+		*)	error "E: Invalid or unsupported type combination: ${MODE} (${MODEx})."; return 1;;
+	esac
+
+# Write
+	echo "hw_mode=${HWM}"
+
+# Type
+	[ "${N}" != '' ] && {
+		echo 'ieee80211n=1'
+		echo 'wmm_enabled=1'
+
+		local HTCAP;
+
+		config_get V ${NS}::Global:HTMode HT20
+		case ${V} in
+			HT20)		.;;
+			HT40|HT40+)	HTCAP="${HTCAP} [HT40+]";;
+			HT40-)		HTCAP="${HTCAP} [HT40-]";;
+			*)	error "W: Unsupported HTMode \"${V}\" specified.";;
+		esac
+
+		config_get V ${NS}::Global:GuardInterval long
+		case ${V} in
+			long)		.;;
+			short)		HTCAP="${HTCAP} [SHORT-GI-40] [SHORT-GI-20]";;
+			short20)	HTCAP="${HTCAP} [SHORT-GI-20]";;
+			short40)	HTCAP="${HTCAP} [SHORT-GI-40]";;
+			*)		error "W: Unsupported GuardInterval \"${V}\" specified.";;
+		esac
+
+		echo "ht_capab=${HTCAP}"
+	}
+
+	[ "${AC}" != '' ] && { # NOT SUPPORTED YET
+		echo 'ieee80211ac=1'
+
+		config_get V ${NS}::Global:HTMode HT20
+		case ${V} in
+			HT20|HT40|HT40+|HT40-)	echo 'vht_oper_chwidth=0';;
+			HT80|HT80+)		echo 'vht_oper_chwidth=1';;
+			HT80-)			echo 'vht_oper_chwidth=1';;
+			HT160|HT160+)		echo 'vht_oper_chwidth=2';;
+			HT160-)			echo 'vht_oper_chwidth=2';;
+			HT80+80|HT80+80+)	echo 'vht_oper_chwidth=3';;
+			HT80+80-)		echo 'vht_oper_chwidth=3';;
+			*)	error "W: Unsupported HTMode \"${V}\" specified.";;
+		esac
+
+		local VHTCAP='[VHT160] [VHT160-80PLUS80] [SU-BEAMFORMER] [SU-BEAMFORMEE] [MU-BEAMFORMER]';
+		config_get V ${NS}::Global:GuardInterval long
+		case ${V} in
+			long)	.;;
+			short)	VHTCAP="${VHTCAP} [SHORT-GI-160] [SHORT-GI-80]";;
+			*)	error "W: Unsupported GuardInterval \"${V}\" specified.";;
+		esac
+
+		echo "ht_capab=${VHTCAP}"
+
+
+	}
+
+	[ "${Tax}" != '' ] && {
+		echo 'ieee80211ax=1'
+		echo 'he_su_beamformer=1'
+		echo 'he_su_beamformee=1'
+		echo 'he_mu_beamformer=1'
+	}
+
+# Enforce
+	[ "${ALLOW_B}" = '1' ] && {
+		echo 'supported_rates=10 20 55 110 60 90 120 180 240 360 480 540'
+		echo 'basic_rates=10 20 55 110'
+	} || {
+		echo 'supported_rates=10 20 55 110 60 90 120 180 240 360 480 540'
+		echo 'basic_rates=60 120 240'
+	}
+	[ "${N}" = '2' ] && echo "require_ht=1"
+	[ "${AC}" = '2' ] && echo "require_vht=1"
+
+	return 0;
+}
+
+
+config_ap_global(){
+	local NS=${1};
+	local GRP=${NS}::Global;
+
+# Device path
+	config_get V ${GRP}:Device -
+
+# Initialize configuration file
+	echo '# Global'
+	echo "interface=w${V}_AP"
+	echo 'driver=nl80211'
+
+	echo 'logger_stdout=-1'
+	echo 'logger_stdout_level=2'
+
+# Global settings
+	config_get V ${GRP}:Channel 0
+	echo "channel=${V}"
+
+	config_get V ${GRP}:Beacon 100
+	echo "beacon_int=${V}"
+
+	config_get V ${GRP}:DTIM 2
+	echo "dtim_period=${V}"
+
+	config_get V ${GRP}:RTSThreshold 2347
+	echo "rts_threshold=${V}"
+
+	config_get V ${GRP}:FragmentThreshold 2346
+	echo "fragm_threshold=${V}"
+
+	config_get V ${GRP}:Preamble short
+	case ${V} in
+		short)	echo 'preamble=1';;
+		long)	echo 'preamble=0';;
+		*)	echo 'preamble=0'; error "W: Unsupported preamble type \"${V}\" specified.";;
+	esac
+
+	config_get V ${GRP}:Region 00
+	echo "country_code=${V}"
+
+	config_get V ${GRP}:IEEE80211d false
+	[ "${V}" = 'true' ] && echo 'ieee80211d=1'
+
+	config_get V ${GRP}:IEEE80211h false
+	[ "${V}" = 'true' ] && echo 'ieee80211h=1'
+
+
+# Sta Management
+	config_get V ${GRP}:DisconnectInactive 300
+	echo "ap_max_inactivity=${V}"
+
+	config_get V ${GRP}:AllowInactive false
+	case ${V} in
+		true)		echo 'skip_inactivity_poll=1';;
+		false|*)	echo 'skip_inactivity_poll=0';;
+	esac
+
+	config_get V ${GRP}:DisconnectLowACK true
+	case ${V} in
+		true)		echo 'disassoc_low_ack=1';;
+		false|*)	echo 'disassoc_low_ack=0';;
+	esac
+
+	config_get V ${GRP}:APTableMax 255
+	echo "ap_table_max_size=${V}"
+
+	config_get V ${GRP}:APTableExpire 60
+	echo "ap_table_expiration_time=${V}"
+
+	config_get V ${GRP}:TrackStaMax 100
+	echo "track_sta_max_num=${V}"
+
+	config_get V ${GRP}:TrackStaExpire 180
+	echo "track_sta_max_age=${V}"
+
+
+
+# Extra features
+	echo 'noscan=1'
+
+	echo 'vendor_elements=dd045F000012'
+	echo 'assocresp_elements=dd045F000012'
+
+# Not supported: ProtectBG / ProtectN
+
+	echo
+	return 0;
+}
+
+divide_radius_server(){
+	local IFS=':'
+	set -- ${1}
+	echo "auth_server_addr=${1:-127.0.0.1}"
+	echo "auth_server_port=${2:-1812}"
+	return 0;
+}
+
+config_ap_essid_wpa(){
+# WPAn: Key Management
+	local GRP=${1};
+	local WPAn=${2};
+	local AKEYM=${3};
+	case ${AKEYM} in
+		PSK)
+			config_get V ${GRP}:Key
+			[ "${SAE}" = '1' ] && {
+				WPAKM="${WPAKM} SAE";
+				echo "sae_password=${V}"
+			}
+			WPAKM="${WPAKM} WPA-PSK";
+			echo "wpa=${WPAn};"
+			echo "wpa_passphrase=${V}"
+			;;
+		EAP)
+			echo "wpa=${WPAn}"
+
+			[ "${SAE}" = '1' ] && WPAKM="${WPAKM} WPA-EAP-SUITE-B-192";
+			WPAKM="${WPAKM} WPA-EAP";
+
+			echo 'ieee8021x=1'
+			config_get V ${GRP}:RadiusServer 127.0.0.1:1812
+			divide_radius_server "${V}"
+
+			config_get V ${GRP}:Key -
+			echo "auth_server_shared_secret=${V}"
+			;;
+		*)
+			error "E: Unsupported WPA key management \"${AKEYM}\" specified.";
+			;;
+	esac
+	echo "wpa_key_mgmt=${WPAKM}"
+
+# WPAn: Encryption type
+	local ENC;
+	config_get V ${GRP}:Encrypt
+	local IFS=$'/ \t';
+	for e in ${V}; do
+		ENC="${ENC} ${e}"
+	done
+	echo "wpa_pairwise=${ENC}"
+
+# WPAn: Rekey
+	config_get V ${GRP}:RekeyGTK 1800
+	[ "$((V+0))" != '0' ] && echo "wpa_group_rekey=$((V+0))"
+
+	config_get V ${GRP}:StrictGTK 0
+	[ "$((V+0))" != '0' ] && echo 'wpa_strict_rekey=1'
+
+	config_get V ${GRP}:RekeyGMK 1800
+	[ "$((V+0))" != '0' ] && echo "wpa_gmk_rekey=$((V+0))"
+
+	config_get V ${GRP}:RekeyPTK 0
+	[ "$((V+0))" != '0' ] && echo "wpa_ptk_rekey=$((V+0))"
+
+	return 0;
+}
+
+
+config_ap_essid(){
+	local GRP=${1};
+	echo "# Section: ${GRP}"
+
+	[ "${BSSCount}" != '0' ] && {
+		config_get V ${NS}::Global:Device 0
+		echo "bss=w${V}_AP${BSSCount}"
+	}
+	BSSCount=$((BSSCount+1));
+
+	config_get V ${GRP}:ESSID -
+	[ "${V}" = '-' ] && continue
+
+# BSSID
+	local BSSCountH=${BSSCount};
+	BSSCountH=`${BIN_FOLDER}/dec2hex ${BSSCountH}`;
+	echo "bssid=${MAC5}:${BSSCountH}"
+
+# ESSID
+	echo "ssid2=\"${V}\""
+	echo 'utf8_ssid=1'
+
+# Bridge
+	config_get V ${GRP}:Bridge -
+	[ "${V}" != '-' ] && echo "bridge=${V}"
+
+
+# Authentication
+	echo 'auth_algs=1'
+	config_get V ${GRP}:Auth none
+	local IFS='-';
+	set -- ${V}
+	local ATYPE=${1:-none};
+	local AKEYM=${2:-EAP};
+	local WPAn WPAf1 WPAf2 SAE WPAKM;
+	IFS=$'/';
+	for t in ${ATYPE}; do
+		case ${t} in
+			WPA)	WPAf1=1;;
+			WPA2)	WPAf2=2;;
+			WPA3)	WPAf2=2; SAE=1;;
+			OWE|eopen)	WPAKM="${WPAKM} OWE ";;
+			none|open|Open)	;;
+			*)	WPAf2=2; error "E: Unsupported authentication type \"${ATYPE}\" specified.";;
+		esac
+	done
+
+# Authentication: WPAn
+	WPAn=$((WPAf1+WPAf2));
+	[ "${WPAn}" != '0' ] && {
+		config_ap_essid_wpa ${GRP} ${WPAn} ${AKEYM}
+	}
+
+# Multi band support
+	config_get V ${GRP}:IgnoreProbeIf -
+	[ "${V}" != '-' ] && {
+		[ "${V}" = "$((V))" ] && {
+			echo "no_probe_resp_if_seen_on=w${V}_AP"
+		} || {
+			echo "no_probe_resp_if_seen_on=${V}"
+		}
+	}
+
+	config_get V ${GRP}:NoAuthIf -
+	[ "${V}" != '-' ] && {
+		[ "${V}" = "$((V))" ] && {
+			echo "no_auth_if_seen_on=w${V}_AP"
+		} || {
+			echo "no_auth_if_seen_on=${V}"
+		}
+	}
+
+# Extra features
+	config_get V ${GRP}:Isolate false
+	[ "${V}" = 'true' ] && echo "ap_isolate=1"
+
+	config_get V ${GRP}:Hide false
+	case ${V} in
+		true|0x00|zero|null)		echo 'ignore_broadcast_ssid=1';;
+		space|0x20|compatible)		echo 'ignore_broadcast_ssid=2';;
+	esac
+
+	echo "ctrl_interface=${CTRL_FOLDER}"
+
+	echo
+	return 0;
+}
+
+
+config_ap(){
+	local NS=${1};
+	local APn=${2};
+	APn=`${BIN_FOLDER}/dec2hex ${APn}`;
+	local MAC5="${MAC4}:A${APn:1:1}";
+
+	local CFG=${TMP_FOLDER}/${NS}.conf;
+# Global settings
+	echo > ${CFG}
+	config_ap_global ${NS} >> ${CFG}
+
+# Type combination
+	config_get V ${NS}::Global:Mode -
+	generalize_type ${NS} "${V}" >> ${CFG}
+	[ "${?}" = '1' ] && return 1;
+
+# per ESSID settings
+	local BSSCount=0;
+
+	# Main AP
+	config_ap_essid ${NS}::AP >> ${CFG}
+
+	# Sub APs
+	for a in `config_search_group ${NS}::AP`; do
+		[ "${a}" != 'AP' ] && config_ap_essid ${NS}::${a} >> ${CFG}
+	done
+
+	return 0;
+}
+
+##########
+
+config_sta_essid(){
+	local V;
+	local GRP=${1};
+	echo "# Section: ${GRP}"
+
+	echo 'network={'
+	echo '	scan_ssid=1'
+
+	config_get V ${GRP}:ESSID -
+	echo "	ssid=\"${V}\""
+
+	config_get V ${GRP}:Auth none
+	case "${V}" in
+			WPA*-PSK)
+				echo '	key_mgmt=WPA-PSK'
+				config_get V ${GRP}:Key -
+				echo "	psk=\"${V}\""
+			;;
+			WPA*-PEAP | WPA*-EAP | WPA | WPA? )
+				echo '	key_mgmt=WPA-EAP'
+				echo '	eap=PEAP'
+
+				config_get V ${GRP}:ID -
+				echo "	identity=\"${V}\""
+
+				config_get V ${GRP}:Key -
+				echo "	password=\"${V}\""
+			;;
+			none|open|Open)	echo '	key_mgmt=NONE';;
+			*)	error "E: Unsupported authentication type \"${V}\" specified.";;
+	esac
+
+	echo '}'
+	return 0;
+}
+
+config_sta(){
+	local NS=${1};
+	local STAn=${2};
+	local CFG=${TMP_FOLDER}/${NS}.conf;
+
+# Global settings
+	local DEV;
+	config_get DEV ${NS}::Global:Device 0
+
+	echo > ${CFG}
+
+# per ESSID settings
+	local BSSCount=0;
+
+	# Main AP
+	config_sta_essid ${NS}::AP >> ${CFG}
+
+	# Sub APs
+	for a in `config_search_group ${NS}::AP`; do
+		[ "${a}" != 'AP' ] && config_sta_essid ${NS}::${a} >> ${CFG}
+	done
+
+	${ServerLoader} stop "STA_${DEV}"
+
+	local CTRL='';
+	[ -e "${CTRL_FOLDER}/w${DEV}_AP" ] && CTRL="-H${CTRL_FOLDER}/w${DEV}_AP";
+
+	[ "${NOSTART}" = '1' ] && return 0;
+
+	${ServerLoader} start "STA_${DEV}" /usr/sbin wpa_supplicant -Dnl80211 -iw${DEV}_Sta -c"${CFG}" ${CTRL}
+	${ServerLoader} restart "DHCPC-w${DEV}_Sta" >${NUL} 2>&1
+
+	return 0;
+}
+
+##########
+
+exec_ap(){
+	ls ${WIFI_FOLDER}/AP*.conf >${NUL} 2>&1 || return 1;
+
+	local T APn;
+	for f in `ls ${WIFI_FOLDER}/AP*.conf`; do
+		T=${f##*/};
+		T=${T//\.*};
+
+		config_load "${f}" ${T}
+		[ "${?}" = '0' ] && {
+			config_ap ${T} $((APn))
+		}
+		APn=$((APn+1));
+	done
+
+	${ServerLoader} stop "AP"
+
+	[ "${NOSTART}" = '1' ] && return 0;
+	${ServerLoader} start "AP" /usr/sbin hostapd ${TMP_FOLDER}/AP*.conf
+
+	return 0;
+}
+
+exec_sta(){
+	ls ${WIFI_FOLDER}/Sta*.conf >${NUL} 2>&1 || return 1;
+
+	local T STAn;
+	for f in `ls ${WIFI_FOLDER}/Sta*.conf`; do
+		T=${f##*/};
+		T=${T//\.*};
+
+		config_load "${f}" ${T}
+		[ "${?}" = '0' ] && {
+			config_sta ${T} $((STAn))
+		}
+		STAn=$((STAn+1));
+	done
+	return 0;
+}
+
+main "${@}"
+

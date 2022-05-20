@@ -1,0 +1,73 @@
+#!/bin/sh
+#//////////////////////////////////////////////////
+#//DESLinux Boot Loader
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+
+main(){
+	install_corefiles;
+	mount_specialfs;
+
+	return 0;
+}
+
+install_corefiles(){
+	echo 'I: Extracting core files...'
+	/bin/busybox --install -s
+	[ "${?}" != '0' ] && {
+		echo 'Failed to extract core files' >&3
+		exit 11;
+	}
+
+	return 0;
+}
+
+check_mounted(){
+	local To=${1};
+	local From=${2};
+	local Type=${3};
+
+	local IFS=$'\r\n';
+	for m in `cat /proc/mounts`; do
+		IFS=$' ';
+		set - ${m}
+		# ${Val:+XXX} = 'XXX' if 'Val' has value.
+		[ "${To}@${From}@${Type}" = "${2}@${From:+${1}}@${Type:+${3}}" ] && return 0;
+	done
+
+	# No match
+	return 1;
+}
+
+mount_once(){ # src, target, fs
+	local From=${1};
+	local To=${2};
+	local Type=${3};
+	local Opts=${4};
+
+	echo "I: Mounting ${To} ..."
+
+	case "${Type}" in
+		'proc')	[ -e "${To}/self" ] && return 0;;
+		*)	check_mounted "${To}" "${From}" "${Type}" && return 0;;
+	esac
+
+	mkdir -p "${To}"
+	mount ${Type:+-t "${Type}"} "${From}" "${To}" ${Opts:+-o ${Opts}} && return 0;
+
+	return 1;
+}
+
+mount_specialfs(){
+	mount_once proc://DESL0/ /proc proc
+	mount_once sysfs://DESL0/ /sys sysfs
+	mount_once dev://DESL0/ /dev devtmpfs || mount_once dev://DESL0/ /dev tmpfs size=1m 
+
+	return 0;
+}
+
+main "${@}";
+
+exit 0;
+

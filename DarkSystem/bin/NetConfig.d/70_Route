@@ -1,0 +1,170 @@
+#!INCLUDE_ONLY
+#//////////////////////////////////////////////////
+#//DESLinux NetConfig.d :: Network Configurator
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+
+route_main(){
+	echo 'I: Route...'
+
+	route_route4_all
+	route_route6_all
+
+	return 0;
+}
+
+route_route4_all(){
+	load_configfile 'Route4.conf' || return 1;
+
+	route_init4 || echo "W: 'ip' does not support flush routing rules.";
+
+	route_rule4
+	route_route4 Route4
+
+	for r in `config_search_group Table4_`; do
+		route_route4 "${r}"
+	done
+
+	return 0;
+}
+
+route_init4(){
+	ip tuntap || return 1; # busybox 'ip'
+
+	ip rule flush
+	ip rule add pref 32766 table 254
+	ip rule add pref 32767 table 253
+
+	# proto 3 (boot): defined by user
+	# rtnetlink.h: RTPROT_BOOT   3 /* Route installed during boot */
+	### ip route flush proto 3
+
+	# proto 150: defined by DES NetConfig
+	ip route flush proto 150
+
+	return 0;
+}
+
+route_rule4(){
+	local K V;
+	echo 'I:  IPv4 routing rule...'
+
+	local IFS=$'\n\r';
+	for x in `config_list_with_value Rule4`;do
+		case ${x} in
+			*=* )
+				K=${x%=*};
+				V=${x#*=};
+				IFS=' ';
+				ip rule add ${V} table "${K}" protocol 150
+			;;
+		esac
+	done
+	return 0;
+}
+
+route_route4(){
+	local K V;
+	local G=${1};
+	local TBID=${G:7};
+	local IFS=$'\n\r';
+
+	echo "I:  IPv4 route table: ${G}..."
+	for x in `config_list_with_value ${G}`;do
+		IFS=' ';
+		case ${x/ /@} in
+			*=*@* )
+				K=${x%=*};
+				V=${x#*=};
+				ip route add "${K}" proto 150 ${TBID:+table ${TBID}} ${V}
+			;;
+			*=* )
+				K=${x%=*};
+				V=${x#*=};
+				ip route add "${K}" proto 150 ${TBID:+table ${TBID}} via "${V}"
+			;;
+		esac
+	done
+	return 0;
+}
+
+
+route_route6_all(){
+	load_configfile 'Route6.conf' || return 1;
+
+	route_init6 || echo "W: 'ip' does not support IPv6.";
+
+	route_rule6
+	route_route6 Route6
+
+	for r in `config_search_group Table6_`; do
+		route_route6 "${r}"
+	done
+
+	return 0;
+}
+
+route_init6(){
+	ip tuntap || return 1; # busybox 'ip'
+
+	ip -6 rule flush
+	ip -6 rule add pref 32766 table 254
+	ip -6 rule add pref 32767 table 253
+
+	# proto 3 (boot): defined by user
+	# rtnetlink.h: RTPROT_BOOT   3 /* Route installed during boot */
+	### ip -6 route flush proto 3
+
+	# proto 150: defined by DES NetConfig
+	ip -6 route flush proto 150
+
+	return 0;
+}
+
+route_rule6(){
+	local K V;
+
+	echo 'I:  IPv6 routing rule...'
+
+	local IFS=$'\n\r';
+	for x in `config_list_with_value Rule6`;do
+		case ${x} in
+			*=* )
+				K=${x%=*};
+				V=${x#*=};
+				IFS=' ';
+				ip -6 rule add ${V} table "${K}" protocol 150
+			;;
+		esac
+	done
+	return 0;
+}
+
+route_route6(){
+	local G=${1};
+	local TBID=${G:7};
+	local IFS=$'\n\r';
+
+	echo "I:  IPv6 route table: ${G}..."
+	for x in `config_list_with_value ${G}`;do
+		IFS=' ';
+		case ${x/ /@} in
+			*=*@* )
+				K=${x%=*};
+				V=${x#*=};
+				ip -6 route add "${K//${CONFIGMANEGER_ESCAPE_0x3A}/:}" ${TBID:+table ${TBID}} proto 150 ${V}
+			;;
+			*=* )
+				K=${x%=*};
+				V=${x#*=};
+				ip -6 route add "${K//${CONFIGMANEGER_ESCAPE_0x3A}/:}" ${TBID:+table ${TBID}} proto 150 via "${V}"
+			;;
+		esac
+	done
+
+	return 0;
+}
+
+route_main "${@}"
+

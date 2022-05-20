@@ -1,0 +1,273 @@
+#!/bin/sh
+#//////////////////////////////////////////////////
+#//DESLinux Dashboard
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+SELF=`readlink -f ${0}`
+sRoot=${SELF%/*}
+SLEEP=sleep
+
+. /DRoot/DarkSystem/DarkSystem /GetEnv
+. ${BIN_FOLDER}/ConfigManager.sh
+
+main(){
+	local SYS_KERNELV=`cat /proc/version`;
+	local SYS_PRDNAME=`cat /DRoot/DarkSystem/PRDNAME.txt`;
+	local SYS_PRDCODE=`cat /DRoot/DarkSystem/PRDCODE.txt`;
+	SYS_KERNELV=${SYS_KERNELV%%(*};
+
+	local NWInterval NWTimeout DefaultHosts;
+	local TEST_GW=9;
+	local TEST_IN=9;
+	local TEST_DNS=9;
+
+	local MSG_PING_OK=`echo -e "\e[m\e[0;32m---->\033[0m"`
+	local MSG_PING_ERR=`echo -e "\e[m\e[0;31m--x--\033[0m"`
+	local MSG_PING_WAIT=`echo -e "\e[m\e[0;33m-----\033[0m"`
+	local MSG_STAT_OK=`echo -e "\e[m\e[0;32mOK\033[0m"`
+	local MSG_STAT_ERR=`echo -e "\e[m\e[0;31mERROR\033[0m"`
+	local MSG_STAT_WAIT=`echo -e "\e[m\e[0;33m...\033[0m"`
+	local MSG_RESET=`echo -e "\033[0m"`
+
+	local NET_STAT_DNS=${MSG_STAT_WAIT};
+	local NET_STAT_PING=${MSG_STAT_WAIT};
+	local NET_ROUTE_LAN=${MSG_PING_WAIT};
+	local NET_ROUTE_WAN=${MSG_PING_WAIT};
+
+	config_load "${CONF_FOLDER}/NETWatcher.conf"
+	config_get NWInterval Settings:Interval 60
+	config_get NWTimeout Settings:Timeout 1
+	config_get DefaultHosts Settings:DefaultHosts ''
+
+	[ "${INTERVAL:-0}" != '0' ] && NWInterval=${INTERVAL};
+
+	local IP4_GW='-';
+	local NWIntervalX=1;
+	while true; do
+		clear;
+		show_system;
+		show_resource;
+		show_network;
+
+		echo
+		echo 'DESLinux: Press Alt+F2 to activate console.'
+
+		sleep ${NWIntervalX}
+		test_net;
+		NWIntervalX=${NWInterval};
+	done
+}
+
+clear_devname(){
+	local IFS=$'\n\r';
+	for v in `set`; do
+		case ${v} in
+			DB_RES_DISK_* ) unset ${v%%=*};;
+		esac
+	done
+}
+
+set_devname(){
+	local N=${1//\//_};
+	N=${N//:/_};
+	eval DB_RES_DISK_${N}=1;
+}
+
+get_devname(){
+	local R=0;
+
+	local N=${1//\//_};
+	N=${N//:/_};
+	eval R=\${DB_RES_DISK_${N}};
+
+	return ${R:-0};
+}
+
+show_system(){
+cat << EOF;
+System:
+	Name		: ${SYS_PRDNAME:--}
+	Version		: ${SYS_PRDCODE:--}
+	Kernel		: ${SYS_KERNELV:--}
+
+EOF
+}
+
+show_resource(){
+	local MTotal MAvail MUsed STotal SAvail SUsed;
+
+	local IFS=$'\r\n';
+	for l in `cat /proc/meminfo`; do
+		IFS=$': 	';
+		set -- ${l}
+		case ${1} in
+			MemTotal	) MTotal=${2};;
+			MemAvailable	) MAvail=${2};;
+			SwapTotal	) STotal=${2};;
+			SwapFree	) SAvail=${2};;
+		esac
+	done
+
+	MUsed=$((${MTotal}-${MAvail}));
+	SUsed=$((${STotal}-${SAvail}));
+
+cat << EOF;
+Resources:
+	Memory		: $((${MUsed:0}/1024)) MB / $((${MTotal:0}/1024)) MB
+	Swap		: $((${SUsed:0}/1024)) MB / $((${STotal:0}/1024)) MB
+
+EOF
+
+echo 'Disks:'
+	clear_devname
+	local NAME;
+	local IFS=$'\n\r';
+	for l in `df`; do
+		IFS=$' 	';
+		set -- ${l}
+		get_devname ${1} || continue;
+
+		[ "${1:0:5}" = '/dev/' ] && {
+			MB=$((${2}/1024));
+			NAME=${6};
+			[ "${NAME:1}" = '' ] && NAME="${NAME}	";
+			echo "	${NAME:0:15}	: $((${3}/1024)) MB / $((${2}/1024)) MB [${5}]"
+			set_devname "${1}"
+		}
+	done
+
+	echo;
+}
+
+show_network(){
+	local NET_HOSTNAME=`cat /proc/sys/kernel/hostname`;
+
+cat << EOF;
+Network:
+	HostName	: ${NET_HOSTNAME:--}
+	DNS		: ${NET_STAT_DNS}
+	Network		: ${NET_STAT_PING}
+			  ${NET_HOSTNAME:-SERVER} ${NET_ROUTE_LAN} ROUTER ${NET_ROUTE_WAN} INTERNET
+	Default Gateway	: ${IP4_GW:-}
+
+Interfaces:
+EOF
+
+	local IFNAME MACADDR IP4ADDR IP6ADDR;
+	local IFS=$'\n\r';
+	for l in `ifconfig`; do
+
+	[ "${l:0:1}" != ' ' ] && {
+		IFS=$' 	';
+		set -- ${l}
+		IFNAME=${1};
+		MACADDR=${5};
+		IP4ADDR='-';
+		IP6ADDR='-';
+		continue;
+	}
+
+	IFS=$'	 ';
+	set -- ${l};
+	[ "${1}" = 'inet' ] && {
+		IP4ADDR=${2:5};
+	}
+
+	[ "${1:0:2}" = 'UP' ] && {
+		[ "${IFNAME:0:3}" = 'b0_' ] && {
+			local TAB='';
+			[ "${IFNAME:8:1}" = '' ] && IFNAME="${IFNAME}	";
+			[ "${IP4ADDR:14:1}" = '' ] && TAB='	';
+			[ "${IP4ADDR:6:1}" = '' ] && TAB='		';
+			echo "	${IFNAME}	: ${IP4ADDR}${TAB}	${MACADDR}"
+		}
+	}
+
+	done
+
+}
+
+test_net(){
+	IP4_GW='-';
+	TEST_GW=0;
+	TEST_IN=0;
+	TEST_DNS=0;
+
+	# Ping test: Default Gateway
+	local IFS=$'\n\r';
+	for l in `route -n`; do
+		IFS=$'	 ';
+		set -- ${l}
+		[ "${1}" = '0.0.0.0' ] && IP4_GW=${2} && break
+	done
+	ping -W ${NWTimeout} -c 1 -s 0 "${IP4_GW}" >/dev/null 2>&1 && TEST_GW=1;
+
+	# Ping test: Internet
+	config_get Hosts Dashboard:Hosts "${DefaultHosts}"
+	IFS=$', ';
+	for x in ${Hosts}; do
+		ping -W ${NWTimeout} -c 1 -s 0 "${x}" >/dev/null 2>&1 && TEST_IN=1 && break;
+	done;
+
+	# DNS test:
+	IFS=$', '
+	for x in ${Hosts}; do
+		nslookup "${x}" >/dev/null 2>&1 && TEST_DNS=1 && break;
+	done;
+
+	NET_STAT_DNS=${MSG_STAT_ERR};
+	NET_STAT_PING=${MSG_STAT_ERR};
+	NET_ROUTE_LAN=${MSG_PING_ERR};
+	NET_ROUTE_WAN=${MSG_PING_ERR};
+
+	[ "${TEST_DNS}" = '1' ] && NET_STAT_DNS=${MSG_STAT_OK}
+	[ "${TEST_GW}${TEST_IN}" = '11' ] && NET_STAT_PING=${MSG_STAT_OK}
+	[ "${TEST_GW}" = '1' ] && NET_ROUTE_LAN=${MSG_PING_OK}
+	[ "${TEST_IN}" = '1' ] && NET_ROUTE_WAN=${MSG_PING_OK}
+
+	return 0;
+}
+
+run_on_tty1(){
+	sleep ${DELAY};
+	exec "${SELF}" /Service > /dev/tty1
+}
+
+boot_bg(){
+	exec "${SELF}" "${@}" /Background-Process > /dev/tty1 &
+}
+
+boot_bgp(){
+	sleep ${DELAY};
+	main;
+}
+
+check_args(){
+	local MODE='run_on_tty1';
+	local DELAY=0;
+	local INTERVAL=0;
+
+	local OARG="${@}";
+
+	local ARG=${1};
+	while shift; do
+		case ${ARG} in
+			''			) ;;
+			/Background		) MODE='boot_bg';;
+			/Background-Process	) MODE='boot_bgp';;
+			/Service		) MODE='boot_bgp';;
+			/Delay			) DELAY=10;;
+			/Delay:*		) DELAY=${ARG#*:};;
+			/Interval:*		) INTERVAL=${ARG#*:};;
+			*			) echo "Unknown option '${ARG}'."; exit 1;;
+		esac
+		ARG=${1};
+	done
+	"${MODE}" ${OARG};
+
+	exit 0;
+}
+
+check_args "${@}"
+

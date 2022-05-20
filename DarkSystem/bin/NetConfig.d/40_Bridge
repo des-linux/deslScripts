@@ -1,0 +1,64 @@
+#!INCLUDE_ONLY
+#//////////////////////////////////////////////////
+#//DESLinux NetConfig.d :: Network Configurator
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+
+bridge_main(){
+	echo 'I: Bridge...'
+	load_configfile 'Bridge.conf' || return 1;
+
+	bridge_init
+	bridge_config
+	return 0;
+}
+
+bridge_init(){
+	echo 'I:  Initialize...'
+
+	local IFS=$'\n\r';
+	for x in `brctl show`; do
+		IFS=$' 	';
+		set -- ${x}
+		[ "${2}" = 'name' ] && continue;
+
+		echo "I:   ${1}"
+		call_ServerLoader stop "DHCPC-${1}"
+ 		ip link set dev "${1}" down
+		brctl delbr "${1}"
+	done
+	return 0;
+}
+
+bridge_config(){
+	local K V;
+
+	echo 'I:  Add...'
+
+	local IFS=$'\n\r';
+	for x in `config_list_with_value Bridge`;do
+		case ${x} in
+			*=* )
+				K=${x%=*};
+				V=${x#*=};
+				echo "I:   ${K} -> ${V}"
+
+				brctl addbr "${K}"
+ 				ip link set dev "${K}" up
+
+				[ "${V}" != '*' ] && {
+					IFS=$' ,	';
+					for v in ${V}; do
+						brctl addif "${K}" "${v}"
+ 						ip link set dev "${v}" up
+					done
+				}
+			;;
+		esac
+	done
+	return 0;
+}
+
+bridge_main "${@}"
+

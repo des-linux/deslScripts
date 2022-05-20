@@ -1,0 +1,135 @@
+#!INCLUDE_ONLY
+#//////////////////////////////////////////////////
+#//DESLinux NetConfig.d :: Network Configurator
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+
+ip_main(){
+	local DHC_CONF="${DROOT:-/DRoot}/DHCP/etc/dhclient.conf";
+
+	[ ! -f "${DHC_CONF}" ] && {
+		DHC_CONF='/tmp/dhclient.conf'
+		ip_make_dhconf "${DHC_CONF}"
+	}
+
+	local DHC_ARGS="-cf ${DHC_CONF}";
+
+	ip_config4
+	ip_config6
+	return 0;
+}
+
+ip_make_dhconf(){
+	cat <<"EOF" >> "${1}"
+timeout 10;
+retry 10;
+
+initial-interval 2;
+backoff-cutoff 5;
+EOF
+
+	return 0;
+}
+
+ip_config4(){
+	local K V;
+
+	echo 'I: Set IPv4...'
+
+	ip -4 addr flush dev lo
+	ip addr add 127.0.0.1/8 dev lo
+	ip link set dev lo up
+
+	load_configfile 'IPv4.conf' || return 1;
+
+	local IFS=$'\n\r';
+	for x in `config_list_with_value IPv4`; do
+		case ${x} in
+			*='*' | *=- )	# Only link up
+				K=${x%=*};
+				echo "I:  ${K} -> (only link up)"
+		 		ip link set "${K}" up
+			;;
+
+			*=DHCP ) #DHCP
+				K=${x%=*};
+				echo "I:  ${K} -> DHCP"
+
+				ip -4 addr flush dev "${K}"
+		 		ip link set "${K}" up
+
+				call_ServerLoader stop  "DHCPC-${K}"
+				call_ServerLoader start "DHCPC-${K}" ${DROOT}/DHCP/bin dhclient -4 -d ${DHC_ARGS} -sf "${DROOT}/DHCP/bin/dhclient-script" -lf "/var/dhclient.db" "${K}"
+			;;
+
+			*=* ) # Static IP
+				K=${x%=*};
+				V=${x#*=};
+				echo "I:  ${K} -> ${V}"
+
+				ip -4 addr flush dev "${K}"
+
+				IFS=$' ,	';
+				for v in ${V}; do
+					ip addr add "${v}" dev "${K}"
+				done
+		 		ip link set "${K}" up
+			;;
+		esac
+	done
+	return 0;
+}
+
+
+ip_config6(){
+	local K V;
+
+	echo 'I: Set IPv6...'
+
+	ip -6 addr flush dev lo
+	ip -6 addr add ::1/128 dev lo
+	ip link set lo up
+
+	load_configfile 'IPv6.conf' || return 1;
+
+	local IFS=$'\n\r';
+	for x in `config_list_with_value IPv6`; do
+		case ${x} in
+			*='*' | *=- )	# Only link up
+				K=${x%=*};
+				echo "I:  ${K} -> (only link up)"
+		 		ip link set "${K}" up
+			;;
+
+			*=DHCP ) #DHCP
+				K=${x%=*};
+				echo "I:  ${K} -> DHCP"
+
+				ip -6 addr flush dev "${K}"
+		 		ip link set "${K}" up
+
+				call_ServerLoader stop  "DHCPC6-${K}"
+				call_ServerLoader start "DHCPC6-${K}" ${DROOT}/DHCP/bin dhclient -6 -d ${DHC_ARGS} -sf "${DROOT}/DHCP/bin/dhclient-script" -lf "/var/dhclient.db" "${K}"
+			;;
+
+			*=* ) # Static IP
+				K=${x%=*};
+				V=${x#*=};
+				echo "I:  ${K} -> ${V}"
+
+				ip -6 addr flush dev "${K}"
+
+				IFS=$' ,	';
+				for v in ${V}; do
+					ip -6 addr add "${v}" dev "${K}"
+				done
+		 		ip link set "${K}" up
+			;;
+		esac
+	done
+	return 0;
+}
+
+ip_main "${@}"
+

@@ -1,0 +1,159 @@
+#!/bin/sh
+#//////////////////////////////////////////////////
+#//DESLinux DSLoader.d :: System Loader
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+
+main(){
+	install_coretools;
+	mount_specialfs;
+	patch_rootfs;
+
+	return 0;
+}
+
+install_coretools(){
+	local CT='/bin/busybox';
+	local CT0='/mnt/coretools0';
+
+	${CT} mkdir -p /mnt
+	${CT} mount -t tmpfs tmpfs://DESL0/mnt /mnt
+	[ "${?}" != '0' ] && {
+		echo "Failed to mount /mnt" >&3
+		exit 1;
+	}
+
+	${CT} mkdir -p ${CT0}
+	${CT} mount -t tmpfs tmpfs://DESL0/coretools0 ${CT0}
+	[ "${?}" != '0' ] && {
+		echo "Failed to mount ${CT0}" >&3
+		exit 1;
+	}
+
+	${CT} mkdir -p ${CT0}/bin
+	${CT} mkdir -p ${CT0}/sbin
+	${CT} cp ${CT} ${CT0}/${CT}
+	${CT} chroot ${CT0} ${CT} --install -s
+	[ "${?}" != '0' ] && {
+		echo "Failed to install core tools." >&3
+		exit 1;
+	}
+
+	return 0;
+}
+
+patch_rootfs(){
+	local P_BIN_TOOLS=0;
+	local P_MODPROBE=0;
+	local P_VAR_IS_LINKED=0;
+	local P_RESOLV_CONF_IS_LINKED=0;
+	local P_DEPMOD=0;
+
+	set -- `cat /proc/version`
+	local KVER="${3}";
+
+	[ ! -e '/bin/mkdir' ] && P_BIN_TOOLS=1;
+	[ ! -e '/sbin/modprobe' ] && P_MODPROBE=1;
+	[ ! -L '/var' ] && P_VAR_IS_LINKED=1;
+	[ ! -L '/etc/resolv.conf' ] && P_RESOLV_CONF_IS_LINKED=1;
+	[ ! -e '/lib/modules/${KVER}/modules.dep' ] && P_DEPMOD=1;
+
+	[ "${P_BIN_TOOLS}${P_MODPROBE}${P_VAR_IS_LINKED}${P_RESOLV_CONF_IS_LINKED}${P_DEPMOD}" = '00000' ] && return 0;
+
+	mount -o remount,rw /
+
+	[ "${P_BIN_TOOLS}" = '1' ] && {
+		/bin/busybox --install -s
+	}
+
+	[ "${P_MODPROBE}" = '1' ] && {
+		ln -s /bin/busybox /sbin/modprobe
+	}
+
+	[ "${P_VAR_IS_LINKED}" = '1' ] && {
+		rm -rf /var
+		ln -s tmp /var
+	}
+
+	[ "${P_RESOLV_CONF_IS_LINKED}" = '1' ] && {
+		rm -f /etc/resolv.conf
+		ln -s /tmp/resolv.conf /etc/resolv.conf
+	}
+
+	[ "${P_DEPMOD}" = '1' ] && {
+		echo 'I: Generating kmodules database...'
+		depmod -a;
+	}
+
+	mount -o remount,ro /
+
+	return 0;
+}
+
+check_mounted(){
+	local To=${1};
+	local From=${2};
+	local Type=${3};
+
+	local IFS=$'\r\n';
+	for m in `cat /proc/mounts`; do
+		IFS=$' ';
+		set - ${m}
+		# ${Val:+XXX} = 'XXX' if 'Val' has value.
+		[ "${To}@${From}@${Type}" = "${2}@${From:+${1}}@${Type:+${3}}" ] && return 0;
+	done
+
+	# No match
+	return 1;
+}
+
+mount_once(){ # src, target, fs
+	local From=${1};
+	local To=${2};
+	local Type=${3};
+	local Opts=${4};
+
+	echo "I: Mounting ${To} ..."
+
+	case "${Type}" in
+		"proc")	[ -e "${To}/self" ] && return 0;;
+		*)	check_mounted "${To}" "${From}" "${Type}" && return 0;;
+	esac
+
+	mkdir -p "${To}"
+	mount ${Type:+-t "${Type}"} "${From}" "${To}" ${Opts:+-o ${Opts}} && return 0;
+
+	return 1;
+}
+
+rbind_once(){ # src, target
+	local From=${1};
+	local To=${2};
+
+	echo "I: Binding ${To} ..."
+	check_mounted "${To}" && return 0;
+
+	mkdir -p "${To}"
+	mount -o rbind "${From}" "${To}" && return 0;
+
+	return 1;
+}
+
+mount_specialfs(){
+	mount_once proc://DESL0/ /proc proc
+	mount_once sysfs://DESL0/ /sys sysfs
+	mount_once dev://DESL0/ /DRoot/DarkSystem/dev devtmpfs || mount_once dev://DESL0/ /DRoot/DarkSystem/dev tmpfs size=1m 
+	mount_once devpts://DESL0/ /DRoot/DarkSystem/dev/pts devpts
+	mount_once tmp://DESL0/ /DRoot/DarkSystem/tmp tmpfs
+
+	rbind_once /DRoot/DarkSystem/dev /dev
+	rbind_once /DRoot/DarkSystem/tmp /tmp
+
+	return 0;
+}
+
+main "${@}";
+
+exit 0;
+

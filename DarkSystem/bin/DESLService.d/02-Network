@@ -1,0 +1,20 @@
+#!/bin/sh
+#//////////////////////////////////////////////////
+#//DESLinux DESLService.d :: System Initializer
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+
+main(){
+	${BIN_FOLDER:-/DRoot/DarkSystem/bin}/NetConfig
+	R=${?};
+	[ ! "${R}" = '0' ] && echo 'WARNING' >&9
+	sleep 1
+
+	exit ${R};
+}
+
+main "${@}";
+
+exit 0;
+

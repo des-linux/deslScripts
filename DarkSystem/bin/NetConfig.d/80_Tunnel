@@ -1,0 +1,108 @@
+#!INCLUDE_ONLY
+#//////////////////////////////////////////////////
+#//DESLinux NetConfig.d :: Network Configurator
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+
+tunnel_main(){
+	tunnel_init
+	tunnel_make
+
+	tunnel_route4
+	tunnel_route6
+	return 0;
+}
+
+tunnel_init(){
+	local TName;
+	echo 'I:  Initialize...'
+
+	local IFS=$'\n\r';
+	for x in `ip -4 tunnel show`; do
+		TName=${x%%:*};
+		ip link set dev "${TName}" down
+
+		ip tunnel del "${TName}"
+	done
+
+	for x in `ip -6 tunnel show`; do
+		TName=${x%%:*};
+		ip link set dev "${TName}" down
+
+		ip tunnel del "${TName}"
+	done
+	return 0;
+}
+
+tunnel_make(){
+	local K V;
+	local TVER TName TMode TRemote TLocal TIP4 TIP6 TTTL;
+
+	echo 'I: Making tunnels...'
+	load_configfile 'Tunnel.conf' || return 1;
+
+	local IFS=$'\n\r';
+	for x in `config_list_group`; do
+		TName=${x};
+		echo "I:  Tunnel: ${TName}"
+		config_get TMode "${TName}:Mode" ''
+		config_get TRemote "${TName}:RemoteIP" ''
+		config_get TLocal "${TName}:LocalIP" ''
+		config_get TTTL "${TName}:TTL" ''
+		config_get TIP4 "${TName}:IPv4" ''
+		config_get TIP6 "${TName}:IPv6" ''
+
+		case "${TMode}" in
+			ip6ip6 | ipip6 | ip6gre | vti6)
+				TVER=-6;
+			;;
+			*) TVER=-4;;
+		esac
+
+		IFS=' ';
+		ip ${TVER} tunnel add "${TName}" mode "${TMode}" remote "${TRemote}" ${TLocal:+local ${TLocal}} ${TTTL:+ttl ${TTTL}}
+
+		IFS=$' ,	';
+		for v in ${TIP4}; do
+			ip addr add "${v}" dev "${TName}"
+		done
+
+		IFS=$' ,	';
+		for v in ${TIP6}; do
+			ip -6 addr add "${v}" dev "${TName}"
+		done
+
+		ip link set dev "${TName}" up
+
+	done
+	return 0;
+}
+
+tunnel_route4(){
+	load_configfile 'TRoute4.conf' || return 1;
+
+	route_rule4
+	route_route4 Route4
+
+	for r in `config_search_group Table4_`; do
+		route_route4 "${r}"
+	done
+
+	return 0;
+}
+
+tunnel_route6(){
+	load_configfile 'TRoute6.conf' || return 1;
+
+	route_rule6
+	route_route6 Route6
+
+	for r in `config_search_group Table6_`; do
+		route_route6 "${r}"
+	done
+	return 0;
+}
+
+tunnel_main "${@}"
+

@@ -1,0 +1,76 @@
+#!INCLUDE_ONLY
+#//////////////////////////////////////////////////
+#//DESLinux NetConfig.d :: Network Configurator
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+
+vlan_main(){
+	echo 'I: VLAN...'
+
+	vlan_init
+
+	load_configfile 'VLAN.conf' || return 1;
+	vlan_config
+	return 0;
+}
+
+vlan_init(){
+	local IF IFx;
+
+	echo 'I:  Delete existing...'
+	vconfig set_name_type DEV_PLUS_VID_NO_PAD
+
+	local IFS=$'\n\r';
+ 	for x in `ip link`; do
+		[ "${x:0:1}" = ' ' ] && continue
+		x=${x#*: };
+		IF=${x%:*};
+
+ 		case "${IF}" in
+ 			*@NONE ) ;;
+			*@* )
+				IFx=${IF%@*};
+				echo "I:   ${IFx}"
+		 		ip link set dev "${IFx}" down
+				vconfig rem "${IFx}"
+			;;
+		esac
+	done
+	return 0;
+}
+
+vlan_config(){
+	local K V MAC MAC5 MAC6;
+
+	echo 'I:  Add...'
+
+	local IFS=$'\n\r';
+	for x in `config_list_with_value VLAN`; do
+		case ${x} in
+			*=* )
+				K=${x%=*};
+				V=${x#*=};
+				MAC5=`${BIN_FOLDER}/dec2hex ${K:3}`;
+
+				echo "I:   ${K} -> ${V}"
+
+				IFS=$' ,	';
+				for v in ${V}; do
+					MAC6=`${BIN_FOLDER}/dec2hex ${v}`;
+					MAC="${MAC4}:${MAC5:-ff}:${MAC6:-ff}";
+
+					echo "I:    interface: ${K}.${v} -> ${MAC}"
+					vconfig add "${K}" "${v}"
+					ip link set dev "${K}.${v}" down
+					ip link set dev "${K}.${v}" address "${MAC}"
+					ip link set dev "${K}.${v}" up
+				done
+			;;
+		esac
+	done
+	return 0;
+}
+
+vlan_main "${@}"
+

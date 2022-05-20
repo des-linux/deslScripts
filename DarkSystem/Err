@@ -1,0 +1,226 @@
+#!/bin/sh
+#//////////////////////////////////////////////////
+#//DESLinux for Routers Error LED Blinker
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+SELF=`readlink -f ${0}`
+sRoot=${SELF%/*};
+
+. ${sRoot}/DarkSystem /GetEnv
+
+main(){
+	local IFS;
+	local L="${LED_FOLDER:-/tmp/DLEDLoader}/Order";
+	[ ! -e "${L}" ] && return 1;
+
+	local SLEEP SLEEP_LONG SLEEP_SHORT;
+	usleep >/dev/null 2>&1
+	if [ "${?}" = '127' ]; then
+		SLEEP='sleep 1';
+		SLEEP_LONG='sleep 1';
+		SLEEP_SHORT='sleep 1';
+	else
+		SLEEP='sleep 1';
+		SLEEP_LONG='usleep 500000';
+		SLEEP_SHORT='usleep 100000';
+	fi
+
+	# Reset
+	ARGCMD_Reset;
+
+	# List LED
+	local LEDs='';
+	local LEDCount=0;
+	IFS=$' \r\n';
+	for x in ${L}/*; do
+		LEDCount=$((LEDCount+1));
+		LEDs="${LEDs} ${x}";
+	done
+
+	# Run command by args[1]
+	local R=0;
+	ARGCMD_${1};
+	R=${?};
+
+	if [ "${R}" == "127" ] ; then # Unknown command
+		ARGCMD_Blink;
+		R=${?};
+		return ${R};
+	else
+		return ${R};
+	fi
+}
+
+ARGCMD_Reset(){
+	for x in ${L}/*; do
+		[ -e "${x}/trigger" ] && echo "${1:-none}" > "${x}/trigger"
+	done
+}
+
+ARGCMD_Blink(){
+	ARGCMD_Reset 'default-on'
+
+	local IFS=' ';
+	while true; do
+		for i in ${LEDs}; do
+			echo '1' > "${i}/brightness"
+		done
+		${SLEEP_LONG}
+
+		for i in ${LEDs}; do
+			echo '0' > "${i}/brightness"
+		done
+		${SLEEP_LONG}
+	done
+	return 1;
+}
+
+ARGCMD_Blink2(){
+	ARGCMD_Reset 'default-on'
+
+	local IFS=' ';
+	while true; do
+		for i in ${LEDs}; do
+			echo '1' > "${i}/brightness"
+		done
+		${SLEEP_LONG}
+
+		for i in ${LEDs}; do
+			echo '0' > "${i}/brightness"
+		done
+		${SLEEP_SHORT}
+	done
+	return 1;
+}
+
+ARGCMD_Blink3(){
+	ARGCMD_Reset 'default-on'
+
+	local IFS=' ';
+	while true; do
+		for i in ${LEDs}; do
+			echo '1' > "${i}/brightness"
+		done
+		${SLEEP_SHORT}
+
+		for i in ${LEDs}; do
+			echo '0' > "${i}/brightness"
+		done
+		${SLEEP_LONG}
+	done
+	return 1;
+}
+
+ARGCMD_Wave(){
+	ARGCMD_Reset 'default-on'
+	for i in ${LEDs}; do
+		echo '0' > "${i}/brightness"
+	done
+
+	set -- ${LEDs}
+	local LastLED='';
+	eval LastLED=\${${LEDCount}};
+
+	set -- ${LastLED} ${LEDs}
+
+	local n;
+	local D E;
+	while true; do
+		n=0;
+		for i in "${@}"; do
+			n=$((n+1));
+			eval D=\${$((n))};
+			eval E=\${$((n+1))};
+			[ "${E}" = '' ] && break;
+
+			echo '0' > ${D}/brightness
+			echo '1' > ${E}/brightness
+			${SLEEP_SHORT}
+		done
+	done
+	return 1;
+}
+
+ARGCMD_Wave2(){
+	ARGCMD_Reset 'default-on'
+	for i in ${LEDs}; do
+		echo '1' > "${i}/brightness"
+	done
+
+	set -- ${LEDs}
+	local LastLED='';
+	eval LastLED=\${${LEDCount}};
+
+	set -- ${LastLED} ${LEDs}
+
+	local n;
+	local D E;
+	while true; do
+		n=0;
+		for i in "${@}"; do
+			n=$((n+1));
+			eval D=\${$((n))};
+			eval E=\${$((n+1))};
+			[ "${E}" = '' ] && break;
+
+			echo '1' > ${D}/brightness
+			echo '0' > ${E}/brightness
+			${SLEEP_SHORT}
+		done
+	done
+	return 1;
+}
+
+ARGCMD_Bound(){
+	ARGCMD_Reset 'default-on'
+	for i in ${LEDs}; do
+		echo '0' > "${i}/brightness"
+	done
+
+	set -- ${LEDs}
+	local LastLED='';
+	eval LastLED=\${${LEDCount}};
+
+	set -- ${LastLED} ${LEDs}
+
+	local n;
+	local D E;
+	while true; do
+		n=0;
+		for i in "${@}"; do
+			n=$((n+1));
+			eval D=\${$((n))};
+			eval E=\${$((n+1))};
+			[ "${E}" = '' ] && break;
+
+			echo '0' > ${D}/brightness
+			echo '1' > ${E}/brightness
+			${SLEEP_SHORT}
+		done
+		n=${LEDCount};
+		for i in "${@}"; do
+			eval D=\${$((n+1))};
+			eval E=\${$((n))};
+			n=$((n-1));
+
+			echo '0' > ${D}/brightness
+			echo '1' > ${E}/brightness
+
+			[ "$((n))" = '1' ] && break;
+			${SLEEP_SHORT}
+		done
+	done
+	return 1;
+}
+
+ARGCMD_Off(){
+	ARGCMD_Reset
+}
+
+ARGCMD_All(){
+	ARGCMD_Reset 'default-on'
+}
+
+main "${@}";
+

@@ -1,0 +1,111 @@
+#!/bin/sh
+#//////////////////////////////////////////////////
+#//DESLinux System Environment Initializer
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+
+load_text_file(){
+	local x;
+	local IFS=$'\n\r';
+	for x in `cat "${1}"`; do
+		echo ${x}; break;
+	done
+	return 0;
+}
+
+export_system_val(){
+	export DROOT=/DRoot;
+
+	export SYS_DRIVE=${DROOT};
+	export SYSTEM_FOLDER=${SYS_DRIVE}/DarkSystem;
+	export BIN_FOLDER=${SYS_DRIVE}/DarkSystem/bin;
+	export CONF_FOLDER=${SYS_DRIVE}/DarkSystem/conf;
+	export LED_FOLDER=/tmp/DLEDLoader;
+	export DARKSYSTEM=${SYSTEM_FOLDER}/DarkSystem;
+
+	export PRDNAME=`load_text_file ${SYSTEM_FOLDER}/PRDNAME.txt`;
+	export PRDCODE=`load_text_file ${SYSTEM_FOLDER}/PRDCODE.txt`;
+	export PRDHOST=${PRDCODE%%:*};
+}
+
+main(){
+clear
+
+cat <<"EOF"
+:
+: Dark Boot System for Linux Ver 1.03
+: http://dark-x.net/
+: (C)2014-2019 Dark Network Systems.
+:
+
+EOF
+
+#//////////////////////////////////////////////////
+#//Version
+#// 1.00 - 2014/09/15, First release
+#// 1.01 - 2016/04/25, Support new environment.
+#// 1.02 - 2018/11/30, rootfs related operations are moved to DSLoader
+#// 1.03 - 2018/12/15, Write hostname directly.
+#//////////////////////////////////////////////////
+
+
+
+#//////////////////////////////////////////////////
+	set -f
+	export_system_val;
+
+	echo "${PRDCODE} [$PRDNAME]"
+	echo "${PRDHOST}" > /proc/sys/kernel/hostname
+
+	echo 'Load System Configuration...'
+	sleep 1
+#//////////////////////////////////////////////////
+
+
+
+#//////////////////////////////////////////////////
+	echo 'Change Current Directory...'
+	cd ${SYSTEM_FOLDER}
+#	chmod +x * >/dev/nul 2>/dev/nul
+	sleep 1
+#//////////////////////////////////////////////////
+
+
+
+#//////////////////////////////////////////////////
+	echo 'Load Product Configuration...'
+	. ${SYSTEM_FOLDER}/Config.sh
+	sleep 1
+#//////////////////////////////////////////////////
+
+
+
+#//////////////////////////////////////////////////
+	set +f
+	echo 'Exec...'
+	sleep 1
+	cd "${DROOT}"
+	if [ -f './boot.sh' ]; then
+		exec ./boot.sh
+	else
+		${SYSTEM_FOLDER}/Err
+	fi
+#//////////////////////////////////////////////////
+
+return 0
+}
+
+case "${1}" in
+	/GetEnv )
+		export_system_val;
+		return 0;;
+	/GetEnvEx )
+		export_system_val;
+		. ${SYSTEM_FOLDER}/Config.sh >/dev/null 2>&1
+		return 0;;
+esac
+
+main "${@}";
+
+

@@ -1,0 +1,38 @@
+#!/bin/sh
+#//////////////////////////////////////////////////
+#//DESLinux for Routers Show current state by LED
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+#
+# ShowState [1-4]
+#	1: Loaded Drivers, Starting...
+#	2: Network
+#	3: Services
+#	4: WiFi
+
+SELF=`readlink -f ${0}`
+sRoot=${SELF%/*};
+
+. ${sRoot}/../DarkSystem /GetEnv
+
+main(){
+	local N=${1};
+
+	local L="${LED_FOLDER:-/tmp/DLEDLoader}/Order";
+	[ ! -e "${L}" ] && return 1;
+
+	for x in ${L}/*; do
+		[ -e "${x}/trigger" ] && echo 'none' > "${x}/trigger"
+	done
+
+	[ -e "${L}/$((N-1))/trigger" ] && {
+		echo 'timer' > "${L}/$((N-1))/trigger"
+#		echo '500' > "${L}/$((N-1))/delay_on"
+#		echo '500' > "${L}/$((N-1))/delay_off"
+	}
+	return 0;
+}
+
+main "${@}";
+
