@@ -1,0 +1,45 @@
+#!/bin/sh
+#//////////////////////////////////////////////////
+#//DESLinux Network Configurator
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+
+SELF=`readlink -f ${0}`
+sRoot=${SELF%/*};
+
+. ${sRoot}/../DarkSystem /GetEnv
+. ${BIN_FOLDER}/ConfigManager.sh
+
+main(){
+	local DROOT=${DROOT:-/DRoot}
+	local ServerLoader=${ServerLoader:-${DROOT}/ServerLoader}
+
+	echo 'I: d-Network Router Network Configurator'
+	echo 'I: 	(C)2016-2022 Dark Network Systems'
+	echo 'I: 	http://dark-x.net/'
+
+	config_load "${CONF_FOLDER}/System.conf"
+
+	# Device settings
+	config_get SC_BaseMAC System:BaseMAC 02:00:00:00
+	config_get SC_HostName System:HostName DNRT0
+	export SC_HostName
+	export SC_BaseMAC
+
+	echo ${SC_HostName}>/proc/sys/kernel/hostname
+	echo "I: Hostname	: ${SC_HostName}"
+	echo "I: Hardware ID	: ${SC_BaseMAC}"
+
+	local DIR="${sRoot}/NetConfig.d"
+
+	local IFS=$'\n\r'
+	for f in `ls "${DIR}/"`; do
+		. "${DIR}/${f}"
+	done
+
+	return 0;
+}
+
+main "${@}";
+

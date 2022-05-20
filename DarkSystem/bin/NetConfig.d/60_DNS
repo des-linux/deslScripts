@@ -1,0 +1,54 @@
+#!INCLUDE_ONLY
+#//////////////////////////////////////////////////
+#//DESLinux NetConfig.d :: Network Configurator
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+
+dns_main(){
+	DNS_CONF='tmp/DNSClients.conf';
+
+	dns_init
+	dns_config
+	return 0;
+}
+
+dns_init(){
+	echo 'I: Initialize DNSClients.conf...'
+	echo >"${DNS_CONF}"
+	return 0;
+}
+
+dns_config(){
+	local USE V;
+
+	echo 'I: Set DNS...'
+	load_configfile 'DNS.conf' || return 1;
+
+	config_get USE DNS:Use -
+	case ${USE} in
+		NetConfig | DNSClients | DarkSystem)
+			V="${DNS_CONF}";
+		;;
+		DHCP | dhclient)
+			V='/tmp/resolv.conf.dhclient';
+		;;
+		udhcpc)
+			V='/tmp/resolv.conf.udhcpc';
+		;;
+		File | - )
+			config_get V DNS:Path -
+		;;
+	esac
+
+	rm -f /tmp/resolv.conf
+	ln -s "${V}" /tmp/resolv.conf
+
+	for x in `config_file_list "${CONF_FOLDER}/DNS.conf" Servers`; do
+		echo "nameserver ${x}" >>"${DNS_CONF}"
+	done
+	return 0;
+}
+
+dns_main "${@}"
+

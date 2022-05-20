@@ -1,0 +1,15 @@
+#!/bin/sh
+#//////////////////////////////////////////////////
+#//DESLinux DESLService.d :: System Initializer
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+
+main(){
+	:
+}
+
+main "${@}";
+
+exit 0;
+

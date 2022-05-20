@@ -1,0 +1,18 @@
+#!/bin/sh
+#//////////////////////////////////////////////////
+#//DESLinux DESLService.d :: System Initializer
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+
+main(){
+	${DROOT:-/DRoot}/ServerLoader auto
+	[ "${?}" = '127' ] && exit 250;
+
+	return 0;
+}
+
+main "${@}";
+
+exit 0;
+

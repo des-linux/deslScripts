@@ -1,0 +1,33 @@
+#!/bin/sh
+#//////////////////////////////////////////////////
+#//DESLinux for Routers NAND Unlock shortcut
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+
+unlock_nand(){
+	echo I: Now unlocked NAND for change configuration!
+	mount -o remount,rw /
+	return 0;
+}
+
+blink_led(){
+	local TMS=100
+
+	local LED='/sys/class/leds';
+	local IFS=$'\n\r';
+	for a in `ls ${LED}`; do
+		echo none > ${LED}/${a}/trigger
+	done
+	for a in `ls ${LED}`; do
+		echo timer > ${LED}/${a}/trigger
+		echo ${TMS} > ${LED}/${a}/delay_on
+		echo ${TMS} > ${LED}/${a}/delay_off
+	done
+	return 0;
+}
+
+unlock_nand;
+blink_led;
+exit 0;
+

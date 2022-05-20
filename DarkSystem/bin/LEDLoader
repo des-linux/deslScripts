@@ -1,0 +1,145 @@
+#!/bin/sh
+#//////////////////////////////////////////////////
+#//DESLinux for Routers LED Configurator
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+
+SELF=`readlink -f ${0}`
+sRoot=${SELF%/*};
+
+sRoot=/DRoot/DarkSystem/bin
+. ${sRoot}/../DarkSystem /GetEnv
+. ${BIN_FOLDER}/ConfigManager.sh
+. ${BIN_FOLDER}/ArgsParser.sh
+
+main(){
+	local IFS;
+	local LED='/sys/class/leds';
+	local BASE="${LED_FOLDER:-/tmp/DLEDLoader}";
+	local ByName="${BASE}/Name";
+	local ByOrder="${BASE}/Order";
+
+	echo 'I: d-Network Router LED Configurator'
+	echo 'I:	(C)2017-2022 Dark Network Systems'
+	echo 'I:	http://dark-x.net/'
+
+	local CONF=${ARGS_OPT_LONG_Config:-${CONF_FOLDER}/LED.conf};
+
+	parse_args "${@}"
+
+	case "${ARGS_TARGET}" in
+		Initialize | initialize)
+			init_led
+			make_leddir
+			return 0;;
+		SetLED | setLED | setled)
+			set_led
+			return 0;;
+	esac
+
+	# Default
+	init_led
+	make_leddir
+	set_led
+
+	return 0;
+}
+
+init_led(){
+	echo 'I: Initializing LED...'
+	local IFS=$'\n\r';
+	for a in `ls ${LED}`; do
+		echo none > ${LED}/${a}/trigger
+	done
+	return 0;
+}
+
+make_leddir(){
+	local IFS K V;
+	rm -rf "${BASE}"
+	mkdir -p "${BASE}"
+	[ ! -e "${BASE}" ] && return 1;
+
+	mkdir -p "${ByName}"
+	IFS=$'\n\r';
+	for a in `config_file_list "${CONF}" Name`; do
+		K=${a%%=*};
+		V=${a#*=};
+		echo "I: LED Name: ${K} -> ${V}"
+		ln -s "${LED}/${V}" "${ByName}/${K}"
+	done
+
+	mkdir -p "${ByOrder}"
+	IFS=$'\n\r';
+	local N=0;
+	for a in `config_file_list "${CONF}" Order`; do
+		echo "I: LED Order[$((N))] -> ${a}"
+		ln -s "${ByName}/${a}" "${ByOrder}/$((N))"
+		N=$((N+1));
+	done
+	return 0;
+}
+
+set_led(){
+	local K V L;
+	local IFS=$'\n\r';
+
+	set -f
+	for a in `config_file_list "${CONF}" LED`; do
+		K="${a%%=*}";
+		V="${a#*=}";
+		L="${ByName}/${K}";
+		IFS='/';
+		set -- ${V}
+
+		echo 'none' > ${L}/trigger
+
+		echo "${1}" > ${L}/trigger
+		case "${1}" in
+			on )
+				echo 'default-on' > ${L}/trigger
+			;;
+			netdev )
+				echo "${2}" > ${L}/device_name
+				[ -e "${L}/mode" ] && {
+					echo "${3}" > ${L}/mode
+				} || {
+					IFS=' ';
+					for l in ${3}; do
+						echo '1' > ${L}/${l}
+					done
+				}
+			;;
+			timer )
+				echo "${2}" > ${L}/delay_on
+				echo "${3}" > ${L}/delay_off
+			;;
+			switch* )
+				echo "${2}" > ${L}/port_mask
+				echo "${3:-15}" > ${L}/speed_mask
+			;;
+			usbport )
+				shift 1
+				IFS=$' \n\r';
+				[ "${1}" = '*' ] && {
+					set +f
+					for p in ${L}/ports/*; do
+						echo '1' > ${p}
+					done
+					set -f
+				} || {
+					for p in ${*}; do
+						echo '1' > ${L}/ports/${p}
+					done
+				}
+			;;
+		esac
+	done
+	set +f
+
+	return 0;
+}
+
+main "${@}";
+

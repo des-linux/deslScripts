@@ -1,0 +1,63 @@
+#!/bin/sh
+#//////////////////////////////////////////////////
+#//DESLinux Boot Loader
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+ROOTFS_FILE='DESLinux_rootfs.tar';
+ROOT_MOUNT_DIR='/mnt/root';
+START_CDIR="${PWD:-/DRoot/DESLBoot/bin}";
+
+main(){
+	[ -e "${ROOT_MOUNT_DIR}/${ROOTFS_FILE}" ] && extract_rootfs;
+
+	mount -o remount,ro ${ROOT_MOUNT_DIR};
+
+	check_darksystem;
+
+	delete_drivers_in_ram;
+	return 0;
+}
+
+check_darksystem(){
+	local DS='/DRoot/DarkSystem/DarkSystem';
+	[ ! -f "${ROOT_MOUNT_DIR}/${DS}" ] && {
+		echo "DarkSystem is not exist in rootfs" >&3
+		echo "${DS}" >&4
+		exit 41;
+	}
+
+	return 0;
+}
+
+delete_drivers_in_ram(){
+	# Delete drivers in ram rootfs (release RAM)
+	rm -rf /lib/modules
+	return 0;
+}
+
+extract_error(){
+	echo "Failed to extract rootfs." >&3
+	exit 42;
+}
+
+extract_rootfs(){
+	echo 'I: Extracting rootfs...'
+	cd "${ROOT_MOUNT_DIR}" || extract_error
+
+	mv "${ROOTFS_FILE}" "/${ROOTFS_FILE}" || extract_error
+
+	tar xf "/${ROOTFS_FILE}" > /dev/null 2>&4 || extract_error
+	sync
+
+	rm -f "/${ROOTFS_FILE}"
+
+	cd "${START_CDIR}"
+
+	return 0;
+}
+
+main "${@}";
+
+exit 0;
+

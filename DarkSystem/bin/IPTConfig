@@ -1,0 +1,124 @@
+#!/bin/sh
+#//////////////////////////////////////////////////
+#//DESLinux IPTables Cofigurator
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+
+SELF=`readlink -f ${0}`
+sRoot=${SELF%/*};
+
+. ${sRoot}/../DarkSystem /GetEnv
+. ${BIN_FOLDER}/ConfigManager.sh
+. ${BIN_FOLDER}/ArgsParser.sh
+
+check_iptables(){
+	iptables 2>/dev/null
+	[ "${?}" = '127' ] && {
+		echo "W: 'iptables' command is not found."
+		return 1;
+	}
+	return 0;
+}
+
+exec_free() { # Group
+	local IFS=$'\n\r'
+	for x in `config_file_list "${1}" ${2}`; do
+		eval iptables ${x}
+	done
+	return 0;
+}
+
+exec_table() { # table
+	iptables -t ${2} -F
+	iptables -t ${2} -X
+
+	local IFS=$'\n\r'
+	for x in `config_file_list "${1}" ${2}`; do
+		eval iptables -t ${2} ${x}
+	done
+	return 0;
+}
+
+ipt_forward(){
+	local K V;
+	local PRID SRCP DSTI DSTP
+	config_load "${1}" || return 1;
+
+	for t in `config_search_group`; do
+		[ "${t}" = 'Global' ] && t='';
+
+		for x in `config_list_with_value "${t:-Global}"`; do
+			case ${x} in
+				*=*)
+					K=${x%%=*};
+					V=${x#*=};
+
+					PRID=${K};
+					SRCP='';
+					DSTI=${V};
+					DSTP='';
+
+					case ${K} in
+						*/*)	PRID=${K%%/*}; SRCP=${K#*/};
+							DSTP=${SRCP};
+						;;
+					esac
+
+					case ${V} in
+						*:*) DSTI=${V%%:*}; DSTP=${V#*:};;
+					esac
+
+					case ${PRID} in
+						ICMP|icmp)	PRID='1';;
+						TCP|tcp)	PRID='6';;
+						UDP|udp)	PRID='17';;
+						ICMP6|icmp6)	PRID='581';;
+					esac
+
+					iptables -t nat -A PREROUTING -p "${PRID}" ${SRCP:+--dport ${SRCP}} ${t:+-i ${t}} -j DNAT --to-destination "${DSTI}${DSTP:+:${DSTP}}"
+				;;
+			esac
+		done
+	done
+
+	return 0;
+}
+
+main() { # (IPTables.conf)
+	parse_args ${*};
+
+	check_iptables || return 250;
+
+	echo 'I: d-Network Router Network Configurator'
+	echo 'I: 	(C)2016-2022 Dark Network Systems'
+	echo 'I: 	http://dark-x.net/'
+
+
+	CONF=${ARGS_OPT_LONG_Config:-${CONF_FOLDER}/IPTables.conf};
+	CONF_FW=${ARGS_OPT_LONG_Config:-${CONF_FOLDER}/IPTForward.conf};
+
+	[ ! -e "${CONF}" ] && {
+		echo "E: Configuration file '${CONF}' not found."
+		return 1;
+	}
+
+	mkdir -p /var/run/
+
+	exec_free "${CONF}" Initialize
+
+	for x in `config_file_group "${CONF}"`; do
+		[ "${x}" = 'Initialize' ] && continue
+		[ "${x}" = 'Finalize' ] && continue
+		exec_table "${CONF}" ${x}
+	done
+
+	exec_free "${CONF}" Finalize
+
+	ipt_forward "${CONF_FW}"
+
+	return 0;
+}
+
+main "${@}";
+

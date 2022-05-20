@@ -1,0 +1,48 @@
+#!/bin/sh
+#//////////////////////////////////////////////////
+#//DESLinux Boot Loader
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+ROOT_DIR='/mnt/root';
+
+main(){
+	load_cmdline;
+
+	# Use default tools to avoid startup issues caused by user installed tools.
+	# This PATH will override by DarkSystem.
+	export PATH='/mnt/coretools0/sbin:/mnt/coretools0/bin:/sbin:/bin:/usr/sbin:/usr/bin';
+
+	[ "${CMD_desldebugmode}" = '1' ] && {
+		echo "W: desldebugmode is enabled in boot options."
+		echo "W: 'exit' to continue boot process"
+		/bin/sh
+	}
+
+	[ -f "${ROOT_DIR}/DRoot/DarkSystem/DSLoader" ] && {
+		cd "${ROOT_DIR}"; mount --move . /; exec chroot . '/DRoot/DarkSystem/DSLoader'
+	}
+
+	# No exist check, already checked by "03-Preparing"
+	cd "${ROOT_DIR}"; mount --move . /; exec chroot . '/DRoot/DarkSystem/DarkSystem'
+
+	echo 'E: Failed to exec DarkSystem'
+}
+
+load_cmdline(){
+	local IFS=$' ';
+	for kv in `cat /proc/cmdline`; do
+		IFS=$'=';
+		set -- ${kv}
+		local K="${1}";
+		shift
+		local V="${*:--}";
+		eval CMD_${K//-/_}=\"${V}\";
+	done
+	return 0;
+}
+
+main "${@}";
+
+exit 0;
+

@@ -1,0 +1,271 @@
+#!/bin/sh
+#//////////////////////////////////////////////////
+#//DESLinux NETWatcher
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+
+SELF=`readlink -f ${0}`
+sRoot=${SELF%/*};
+
+# Dummy functions
+load_configfile(){ return 1; }
+route_route4(){ return 1; }
+route_route6(){ return 1; }
+
+# Includes
+. ${sRoot}/../DarkSystem /GetEnv
+. ${BIN_FOLDER}/ConfigManager.sh
+. ${BIN_FOLDER}/ArgsParser.sh
+[ -e "${BIN_FOLDER}/NetConfig.d/70_Route" ] && . ${BIN_FOLDER}/NetConfig.d/70_Route
+
+main(){
+	parse_args "${@}"
+
+	local SLEEP='sleep';
+	local FIRSTRUN_MARKER='/tmp/DWatcher.firstrun';
+	local CONF=${ARGS_OPT_LONG_Config:-${CONF_FOLDER}/NETWatcher.conf};
+	local NWInterval NWTimeout NWLEDBase DefaultHosts;
+
+	[ "${ARGS_OPT_LONG_BootWait}" != '' ] && {
+		[ ! -e "${FIRSTRUN_MARKER}" ] && {
+			touch "${FIRSTRUN_MARKER}"
+			echo "W: Waiting $((ARGS_OPT_LONG_BootWait)) seconds for boot process..."
+			sleep $((ARGS_OPT_LONG_BootWait))
+		}
+	}
+
+	echo 'I: Starting Net Watcher'
+	[ "${ARGS_OPT_LONG_InitLED}" != '' ] && {
+		init_led;
+		return 0;
+	}
+
+	[ ! -e "${CONF}" ] && {
+		echo "E: Configuration file \"${CONF}\" not found."
+		return 1;
+	}
+	config_load "${CONF}"
+
+	config_get NWInterval Settings:Interval 60
+	[ "${ARGS_OPT_LONG_Interval}" != '' ] && {
+		echo "W: Interval time overrided: ${NWInterval} -> ${ARGS_OPT_LONG_Interval}"
+		export NWInterval=${ARGS_OPT_LONG_Interval};
+	}
+
+	config_get NWTimeout Settings:Timeout 1
+	config_get NWLEDBase Settings:LEDBase "${LED_FOLDER}/Name"
+	config_get DefaultHosts Settings:DefaultHosts ''
+
+	while true; do
+		addbr_dynamic;
+		addrt_dynamic;
+		apply_netled;
+
+		[ "${NWInterval}" = '0' ] && {
+			echo 'I: Interval is 0. Exiting...'
+			return 0;
+		}
+
+		echo "I: Waiting next check in ${NWInterval} seconds..."
+		[ -e "${sRoot}/execAfter" ] && {
+###			exec "${sRoot}/execAfter" "${NWInterval}" "${SELF}" "${@}"
+
+			# Failsafe
+			${SLEEP} ${NWInterval}
+		} || {
+			${SLEEP} ${NWInterval}
+		}
+	done;
+
+	return 1;
+}
+
+init_led(){
+	local IFS=$'\n\r';
+	echo 'I: Initialize LED...'
+	for a in `ls /sys/class/leds/`; do
+		echo 'none' > /sys/class/leds/${a}/trigger
+	done
+	return 0;
+}
+
+addbr_dynamic(){
+	echo 'I: Adding interfaces to bridge...'
+	local IFS=$'\n\r';
+	local BR;
+	for b in `config_list_with_value Bridge`; do
+		IFS='=';
+		set -- ${b}
+		BR=${1}
+		shift 1
+		IFS=$' ,\t';
+		for d in ${*}; do
+			echo "I:  Adding interface \"${d}\" to \"${BR}\""
+			brctl addif "${BR}" "${d}"
+			ifconfig "${d}" up
+		done
+	done
+	return 0;
+}
+
+addrt_dynamic(){
+	route_route4 Route4
+	route_route6 Route6
+}
+
+apply_netled(){
+	local IFS=$'\n\r';
+
+	local R Type eLEDName eLEDType eLEDArgs dLEDName dLEDType dLEDArgs;
+	local sLEDName sLEDType sLEDArgs fLEDName fLEDType fLEDArgs;
+
+	for g in `config_search_group LED`; do
+		config_get Type ${g}:Type none
+
+		config_get sLEDName ${g}:sLEDName none
+		config_get fLEDName ${g}:fLEDName none
+		config_get sLEDType ${g}:sLEDType none
+		config_get fLEDType ${g}:fLEDType none
+		config_get sLEDArgs ${g}:sLEDArgs ''
+		config_get fLEDArgs ${g}:fLEDArgs ''
+
+		local n=${g##LED_};
+		echo "I: Checking Network conenction \"${n}\"..."
+
+		local Hosts;
+		config_get Hosts ${g}:Hosts "${DefaultHosts}"
+
+		echo "I: Test type: ${Type}"
+		test_${Type} ${g};
+		R=${?};
+
+		[ "${R}" = '127' ]  && { # Unknown command
+			echo "E: Unknown test type '${Type}' specified."
+		}
+
+		[ "${R}" = '0' ] && {
+			eLEDName=${sLEDName};
+			eLEDType=${sLEDType};
+			eLEDArgs=${sLEDArgs};
+			dLEDName=${fLEDName};
+			dLEDType=${fLEDType};
+			dLEDArgs=${fLEDArgs};
+		} || {
+			eLEDName=${fLEDName};
+			eLEDType=${fLEDType};
+			eLEDArgs=${fLEDArgs};
+			dLEDName=${sLEDName};
+			dLEDType=${sLEDType};
+			dLEDArgs=${sLEDArgs};
+		}
+
+		# If want to clear previous LED, must set both "sLEDName" and "fLEDName"
+		[ ! "${sLEDName}" = 'none' ] && echo 'none' > ${NWLEDBase}/${sLEDName}/trigger
+		[ ! "${fLEDName}" = 'none' ] && echo 'none' > ${NWLEDBase}/${fLEDName}/trigger
+
+		[ "${eLEDName}" = 'none' ] && continue
+
+		local L="${NWLEDBase}/${eLEDName}";
+
+		case "${eLEDType}" in
+			none )
+				echo 'none' > ${L}/trigger
+			;;
+			on )
+				echo 'default-on' > ${L}/trigger
+			;;
+			netdev )
+				echo 'netdev' > ${L}/trigger
+
+				IFS=$'/\t';
+				set -- ${eLEDArgs}
+
+				IFS='';
+				echo "${1// /}" > "${L}/device_name"
+
+				[ -e "${L}/mode" ] && {
+					echo "${2}" > ${L}/mode
+				} || {
+					IFS=' ';
+					for l in ${2}; do
+						echo '1' > ${L}/${l}
+					done
+				}
+			;;
+			timer )
+				echo 'timer' > ${L}/trigger
+				IFS=$' /\t';
+				set -- ${eLEDArgs}
+				echo "${1:-500}" > ${L}/delay_on
+				echo "${2:-500}" > ${L}/delay_off
+			;;
+			switch* )
+				echo "${eLEDType}" > ${L}/trigger
+				IFS=$' /\t';
+				set -- ${eLEDArgs}
+				echo "${1}" > ${L}/port_mask
+				echo "${2:-15}" > ${L}/speed_mask
+			;;
+		esac
+
+	done
+
+	return 0;
+}
+
+
+test_true(){
+	return 0;
+}
+test_false(){
+	return 1;
+}
+
+test_ping(){
+	local IFS=$', ';
+	for x in ${Hosts}; do
+		echo "I:  Ping Test: \"${x}\"..."
+		ping -W ${NWTimeout} -c 1 -s 0 "${x}" >/dev/null 2>/dev/null
+		[ "${?}" = '0' ] && {
+			echo 'I:   Success.'
+			return 0;
+		} || {
+			echo 'W:   Failed.'
+		}
+	done;
+	return 1;
+}
+
+test_dns(){
+	local IFS=$', ';
+	for x in ${Hosts}; do
+		echo "I:  DNS Test: \"${x}\"..."
+		nslookup "${x}" >/dev/null 2>/dev/null
+		[ "${?}" = '0' ] && {
+			echo 'I:   Success.'
+			return 0;
+		} || {
+			echo 'W:   Failed.'
+		}
+	done;
+	return 1;
+}
+
+test_swlink(){
+	local IFS=$'/\t ';
+	set -- ${Hosts}
+	IFS=$' \t\n\r'
+	for a in `swconfig dev ${1} port ${2} show`; do
+		[ "${a}" = 'link:up' ] && {
+			echo 'I:   Success.'
+			return 0;
+		}
+	done
+
+	echo 'W:   Failed.'
+	return 1;
+}
+
+main "${@}";
+

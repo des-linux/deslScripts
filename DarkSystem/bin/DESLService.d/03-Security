@@ -1,0 +1,28 @@
+#!/bin/sh
+#//////////////////////////////////////////////////
+#//DESLinux DESLService.d :: System Initializer
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+
+main(){
+	[ -e "/usr/lib/xtables/xtables.sqfs" ] && {
+		mount -t squashfs -o ro /usr/lib/xtables/xtables.sqfs /usr/lib/xtables
+	}
+
+	${BIN_FOLDER:-/DRoot/DarkSystem/bin}/IPTConfig
+	R=${?};
+	sleep 1
+
+	# 250: iptables not found in 'IPTConfig' / Show 'SKIP' in 'DESLService'
+	[ "${R}" = '250' ] && exit ${R};
+
+	# Any errors do not block boot process
+	[ "${R}" != '0' ] && echo "WARNING" >&9
+	exit 0;
+}
+
+main "${@}";
+
+exit 0;
+

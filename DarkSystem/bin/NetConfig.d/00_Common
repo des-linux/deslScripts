@@ -1,0 +1,50 @@
+#!INCLUDE_ONLY
+#//////////////////////////////////////////////////
+#//DESLinux NetConfig.d :: Network Configurator
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+
+MAC4=${SC_BaseMAC:-02:00:00:00};
+
+ARGS_PARSER=${BIN_FOLDER:-${sRoot:-/DRoot/DarkSystem/bin}}/ArgsParser.sh;
+[ -e "${ARGS_PARSER}" ] && {
+	. "${ARGS_PARSER}"
+	parse_args "${@}"
+}
+
+call_ServerLoader(){
+	${ServerLoader:-/DRoot/ServerLoader} "${@}" >/dev/null 2>&1
+}
+
+load_configfile(){
+	local DIR=${CONF_FOLDER};
+
+	[ "${ARGS_OPT_LONG_ConfigDir}" != '' ] && DIR=${ARGS_OPT_LONG_ConfigDir};
+
+	[ ! -e "${DIR}/${1}" ] && {
+		echo "E: No configuration file '${DIR}/${1}' found."
+		return 1;
+	}
+
+	config_load "${DIR}/${1}" > /dev/null
+	return 0;
+}
+
+test_ip(){
+	ip >/dev/null 2>&1
+	[ "${?}" = '127' ] && return 1;
+	return 0;
+}
+
+
+
+echo(){
+	[ "${2}" = '' ] && {
+		busybox echo "${@}"
+	} || {
+		busybox echo -e "\e[32;1m\e[m\e[32;1m${@}\e[m" >&2
+	}
+	return 0;
+}
+

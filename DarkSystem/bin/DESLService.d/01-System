@@ -1,0 +1,28 @@
+#!/bin/sh
+#//////////////////////////////////////////////////
+#//DESLinux DESLService.d :: System Initializer
+#//     (C)2014-2022 Dark Embedded Systems.
+#//     http://xprj.net/
+#//////////////////////////////////////////////////
+
+. ${BIN_FOLDER:-/DRoot/DarkSystem/bin}/ConfigManager.sh
+
+main(){
+	echo ' Initializing system...'
+	mount -o remount,ro /
+
+	for l in `config_file_list "${CONF_FOLDER}/Kernel.conf" Kernel`; do
+		sysctl -w ${l};
+	done
+
+	# Start DESLDaemon
+	${BIN_FOLDER}/DESLDaemon /Daemon
+	[ "${?}" = '127' ] && exit 250;
+
+	return 0;
+}
+
+main "${@}";
+
+exit 0;
+
