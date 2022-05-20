@@ -1,13 +1,14 @@
 #!/bin/sh
 #//////////////////////////////////////////////////
 #//DESLinux DESLService.d :: System Initializer
-#//     (C)2014-2022 Dark Embedded Systems.
-#//     http://xprj.net/
+#//	(C)2014-2022 Dark Embedded Systems.
+#//	http://xprj.net/
 #//////////////////////////////////////////////////
-
 . ${BIN_FOLDER:-/DRoot/DarkSystem/bin}/ConfigManager.sh
 
 main(){
+	${BIN_FOLDER}/ShowState 2
+
 	echo ' Initializing system...'
 	mount -o remount,ro /
 

@@ -1,0 +1,13 @@
+#!/bin/sh
+
+main(){
+	${BIN_FOLDER:-/DRoot/DarkSystem/bin}/LEDLoader /SetLED
+	[ "${?}" = '127' ] && exit 250;
+
+	return 0;
+}
+
+main "${@}";
+
+exit 0;
+
