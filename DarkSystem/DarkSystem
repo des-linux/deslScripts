@@ -1,8 +1,8 @@
 #!/bin/sh
 #//////////////////////////////////////////////////
 #//DESLinux System Environment Initializer
-#//     (C)2014-2022 Dark Embedded Systems.
-#//     http://xprj.net/
+#//	(C)2014-2022 Dark Embedded Systems.
+#//	http://xprj.net/
 #//////////////////////////////////////////////////
 
 load_text_file(){
