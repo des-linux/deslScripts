@@ -18,6 +18,8 @@ main(){
 	echo "I: Mapping devices to '/dev'..."
 	register_dev scan
 
+	save_kernel_checksum;
+
 	return 0;
 }
 
@@ -36,6 +38,22 @@ dump_eeprom(){
 	echo "I: Copy 'regulatory.db'"
 	cp /DRoot/DESLBoot/regulatory.db "${DIR}"
 
+}
+
+save_kernel_checksum() {
+	local IFS=$'\n\r';
+	for x in `cat /proc/mtd`; do
+		IFS='   "';
+		set -- ${x}
+		case "${4}" in
+			"kernel" | "linux" )
+				kernel_size=${2};
+			;;
+		esac
+	done
+
+	mtd ${kernel_size:+-c 0x$kernel_size} fixtrx firmware && return 0
+	mtd ${kernel_size:+-c 0x$kernel_size} fixseama firmware  && return 0
 }
 
 load_cmdline(){
